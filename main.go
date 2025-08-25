@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,12 +9,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/adshao/go-binance/v2"
 )
 
-// Общие структуры данных
+// ================== Общие структуры данных ==================
+
 type OrderBook struct {
 	Symbol    string
 	Exchange  string
@@ -40,7 +44,115 @@ type Config struct {
 	Limit   int `json:"limit"`
 }
 
-// Bybit API Response Structures
+// ================== Интерактивный ввод (Действие 1) ==================
+
+type InputParams struct {
+	LeftCoinName   string
+	LeftCoinChain  string
+	RightCoinName  string
+	RightCoinChain string
+	LeftCoinVolume float64
+}
+
+// Форматирование числа по-русски: 100.000.000,0
+func formatFloatRU(v float64, decimals int) string {
+	s := fmt.Sprintf("%.*f", decimals, v) // "100000000.0"
+	parts := strings.SplitN(s, ".", 2)
+	intPart := parts[0]
+	frac := ""
+	if len(parts) == 2 {
+		frac = parts[1]
+	}
+	// расставляем точки в целой части
+	var out []byte
+	cnt := 0
+	for i := len(intPart) - 1; i >= 0; i-- {
+		out = append(out, intPart[i])
+		cnt++
+		if cnt%3 == 0 && i != 0 {
+			out = append(out, '.')
+		}
+	}
+	// разворот
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	if decimals == 0 {
+		return string(out)
+	}
+	return string(out) + "," + frac
+}
+
+func getInteractiveParams() InputParams {
+	reader := bufio.NewReader(os.Stdin)
+
+	// 1) Выбор базовой валюты (пока только USDT; оставлено место для расширения)
+	fmt.Println("Выберите валюту, которой платите:")
+	fmt.Println("1) USDT  (пока доступна)")
+	fmt.Print("Ваш выбор [1] (Enter = USDT): ")
+	baseRaw, _ := reader.ReadString('\n')
+	baseRaw = strings.TrimSpace(baseRaw)
+
+	base := "USDT"
+	if baseRaw == "1" || baseRaw == "" {
+		base = "USDT"
+	} else {
+		// зарезервировано для будущих валют
+		base = "USDT"
+	}
+
+	// 2) Куда меняем USDT — 5 монет
+	coins := []string{"BTC", "ETH", "BNB", "ADA", "SOL"}
+	fmt.Println("\nНа какую монету хотите обменять USDT?")
+	for i, c := range coins {
+		fmt.Printf("%d) %s\n", i+1, c)
+	}
+	fmt.Print("Ваш выбор [1-5] (Enter = BTC): ")
+	choiceRaw, _ := reader.ReadString('\n')
+	choiceRaw = strings.TrimSpace(choiceRaw)
+
+	choice := 1 // по умолчанию BTC
+	if choiceRaw != "" {
+		if n, err := strconv.Atoi(choiceRaw); err == nil && n >= 1 && n <= len(coins) {
+			choice = n
+		}
+	}
+	right := coins[choice-1]
+
+	// 3) Сколько базовой валюты (USDT) — с красивым форматом
+	defAmount := 100_000_000.0
+	fmt.Printf("\nСколько у вас %s? (Enter = %s): ", base, formatFloatRU(defAmount, 1))
+	amountRaw, _ := reader.ReadString('\n')
+	amountRaw = strings.TrimSpace(amountRaw)
+
+	amount := defAmount
+	if amountRaw != "" {
+		// позволяем ввод "100.000.000,0" / "100000000" / "100,5" и т.п.
+		normalized := strings.ReplaceAll(amountRaw, " ", "")
+		normalized = strings.ReplaceAll(normalized, ".", "")
+		normalized = strings.ReplaceAll(normalized, ",", ".")
+		if v, err := strconv.ParseFloat(normalized, 64); err == nil && v > 0 {
+			amount = v
+		}
+	}
+
+	params := InputParams{
+		LeftCoinName:   base,
+		LeftCoinChain:  "SPOT",
+		RightCoinName:  right,
+		RightCoinChain: "SPOT",
+		LeftCoinVolume: amount,
+	}
+
+	// подтверждение выбора — красивый формат
+	fmt.Printf("\nВы выбрали: платить %s и купить %s\n", params.LeftCoinName, params.RightCoinName)
+	fmt.Printf("Доступно %s: %s\n", params.LeftCoinName, formatFloatRU(params.LeftCoinVolume, 2))
+
+	return params
+}
+
+// ================== Bybit API ==================
+
 type BybitSymbolResponse struct {
 	RetCode int    `json:"retCode"`
 	RetMsg  string `json:"retMsg"`
@@ -67,7 +179,6 @@ type BybitOrderBookResponse struct {
 	} `json:"result"`
 }
 
-// HTTP клиент для Bybit
 type BybitHTTPClient struct {
 	baseURL  string
 	client   *http.Client
@@ -78,27 +189,52 @@ type BybitHTTPClient struct {
 func NewBybitHTTPClient(config Config, category string) *BybitHTTPClient {
 	return &BybitHTTPClient{
 		baseURL:  "https://api.bybit.com",
-		client:   &http.Client{Timeout: 15 * time.Second},
+		client:   &http.Client{Timeout: 12 * time.Second},
 		config:   config,
 		category: category,
 	}
 }
 
+// общий ретраер с простым экспоненциальным бэкоффом
+func withRetry(attempts int, sleep time.Duration, op func() error) error {
+	var err error
+	backoff := sleep
+	for i := 0; i < attempts; i++ {
+		if err = op(); err == nil {
+			return nil
+		}
+		time.Sleep(backoff)
+		if backoff < 5*time.Second {
+			backoff *= 2
+		}
+	}
+	return err
+}
+
 func (b *BybitHTTPClient) makeRequest(url string) ([]byte, error) {
-	resp, err := b.client.Get(url)
+	var respBody []byte
+	err := withRetry(3, 1*time.Second, func() error {
+		resp, err := b.client.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("HTTP error: %s", resp.Status)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		respBody = body
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
-	}
-
-	return io.ReadAll(resp.Body)
+	return respBody, nil
 }
 
-// Bybit implementation with HTTP
 type BybitExchange struct {
 	httpClient *BybitHTTPClient
 	config     Config
@@ -117,92 +253,74 @@ func (b *BybitExchange) Name() string {
 
 func (b *BybitExchange) GetSymbols() ([]string, error) {
 	url := fmt.Sprintf("%s/v5/market/instruments-info?category=spot", b.httpClient.baseURL)
-
 	data, err := b.httpClient.makeRequest(url)
 	if err != nil {
 		return nil, fmt.Errorf("bybit: ошибка запроса: %w", err)
 	}
-
 	var response BybitSymbolResponse
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("bybit: ошибка парсинга JSON: %w", err)
 	}
-
 	if response.RetCode != 0 {
 		return nil, fmt.Errorf("bybit: API error: %s", response.RetMsg)
 	}
-
 	var symbols []string
-	for _, symbol := range response.Result.List {
-		if symbol.Status == "Trading" {
-			symbols = append(symbols, symbol.Symbol)
+	for _, s := range response.Result.List {
+		if s.Status == "Trading" {
+			symbols = append(symbols, s.Symbol)
 		}
 	}
-
 	return symbols, nil
 }
 
 func (b *BybitExchange) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
 	url := fmt.Sprintf("%s/v5/market/orderbook?category=spot&symbol=%s&limit=%d",
 		b.httpClient.baseURL, symbol, limit)
-
 	data, err := b.httpClient.makeRequest(url)
 	if err != nil {
 		return nil, fmt.Errorf("bybit: ошибка запроса стакана: %w", err)
 	}
-
 	var response BybitOrderBookResponse
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("bybit: ошибка парсинга стакана: %w", err)
 	}
-
 	if response.RetCode != 0 {
 		return nil, fmt.Errorf("bybit: API error: %s", response.RetMsg)
 	}
-
-	return b.convertOrderBook(symbol, &response), nil
+	ob := &OrderBook{
+		Symbol:    symbol,
+		Exchange:  b.Name(),
+		Timestamp: response.Result.Ts,
+	}
+	for _, ask := range response.Result.Asks {
+		if len(ask) >= 2 {
+			ob.Asks = append(ob.Asks, Order{Price: ask[0], Quantity: ask[1]})
+		}
+	}
+	for _, bid := range response.Result.Bids {
+		if len(bid) >= 2 {
+			ob.Bids = append(ob.Bids, Order{Price: bid[0], Quantity: bid[1]})
+		}
+	}
+	return ob, nil
 }
 
 func (b *BybitExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
 	result := make(map[string]*OrderBook)
-
 	for _, symbol := range symbols {
 		orderBook, err := b.GetOrderBook(symbol, limit)
 		if err != nil {
 			log.Printf("Bybit: ошибка для %s: %v", symbol, err)
 			continue
 		}
-
 		result[symbol] = orderBook
 		time.Sleep(delay)
 	}
-
 	return result, nil
 }
 
-func (b *BybitExchange) convertOrderBook(symbol string, response *BybitOrderBookResponse) *OrderBook {
-	ob := &OrderBook{
-		Symbol:    symbol,
-		Exchange:  b.Name(),
-		Timestamp: response.Result.Ts,
-	}
+// ================== Binance API ==================
 
-	for _, ask := range response.Result.Asks {
-		if len(ask) >= 2 {
-			ob.Asks = append(ob.Asks, Order{Price: ask[0], Quantity: ask[1]})
-		}
-	}
-
-	for _, bid := range response.Result.Bids {
-		if len(bid) >= 2 {
-			ob.Bids = append(ob.Bids, Order{Price: bid[0], Quantity: bid[1]})
-		}
-	}
-
-	return ob
-}
-
-// Binance implementation
 type BinanceExchange struct {
 	client *binance.Client
 	config Config
@@ -210,6 +328,8 @@ type BinanceExchange struct {
 
 func NewBinanceExchange(config Config) *BinanceExchange {
 	client := binance.NewClient("", "") // публичные данные
+	// важный таймаут HTTP‑клиента
+	client.HTTPClient = &http.Client{Timeout: 12 * time.Second}
 	return &BinanceExchange{
 		client: client,
 		config: config,
@@ -223,73 +343,63 @@ func (b *BinanceExchange) Name() string {
 func (b *BinanceExchange) GetSymbols() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
 	exchangeInfo, err := b.client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("binance: ошибка получения информации: %w", err)
 	}
-
 	var symbols []string
-	for _, symbol := range exchangeInfo.Symbols {
-		if symbol.Status == "TRADING" {
-			symbols = append(symbols, symbol.Symbol)
+	for _, s := range exchangeInfo.Symbols {
+		if s.Status == "TRADING" {
+			symbols = append(symbols, s.Symbol)
 		}
 	}
-
 	return symbols, nil
 }
 
 func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	binanceOrderBook, err := b.client.NewDepthService().
-		Symbol(symbol).
-		Limit(limit).
-		Do(ctx)
+	var depth *binance.DepthResponse
+	// ретраи DepthService с контекстом-таймаутом
+	err := withRetry(3, 1*time.Second, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var err error
+		depth, err = b.client.NewDepthService().Symbol(symbol).Limit(limit).Do(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("binance: ошибка стакана для %s: %w", symbol, err)
 	}
 
-	return b.convertOrderBook(symbol, binanceOrderBook), nil
+	ob := &OrderBook{
+		Symbol:    symbol,
+		Exchange:  b.Name(),
+		Timestamp: time.Now().UnixMilli(),
+	}
+	for _, a := range depth.Asks {
+		ob.Asks = append(ob.Asks, Order{Price: a.Price, Quantity: a.Quantity})
+	}
+	for _, d := range depth.Bids {
+		ob.Bids = append(ob.Bids, Order{Price: d.Price, Quantity: d.Quantity})
+	}
+	return ob, nil
 }
 
 func (b *BinanceExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
 	result := make(map[string]*OrderBook)
-
 	for _, symbol := range symbols {
 		orderBook, err := b.GetOrderBook(symbol, limit)
 		if err != nil {
 			log.Printf("Binance: ошибка для %s: %v", symbol, err)
 			continue
 		}
-
 		result[symbol] = orderBook
 		time.Sleep(delay)
 	}
-
 	return result, nil
 }
 
-func (b *BinanceExchange) convertOrderBook(symbol string, binanceOB *binance.DepthResponse) *OrderBook {
-	ob := &OrderBook{
-		Symbol:    symbol,
-		Exchange:  b.Name(),
-		Timestamp: time.Now().UnixMilli(),
-	}
+// ================== ExchangeManager ==================
 
-	for _, ask := range binanceOB.Asks {
-		ob.Asks = append(ob.Asks, Order{Price: ask.Price, Quantity: ask.Quantity})
-	}
-
-	for _, bid := range binanceOB.Bids {
-		ob.Bids = append(ob.Bids, Order{Price: bid.Price, Quantity: bid.Quantity})
-	}
-
-	return ob
-}
-
-// ExchangeManager управляет несколькими биржами
 type ExchangeManager struct {
 	exchanges []Exchange
 	config    Config
@@ -317,7 +427,8 @@ func (em *ExchangeManager) GetExchangeNames() []string {
 	return names
 }
 
-// Утилитные функции
+// ================== Утилиты печати ==================
+
 func printOrderBookSummary(ob *OrderBook, showDetails bool) {
 	fmt.Printf("\n=== %s - %s ===\n", ob.Exchange, ob.Symbol)
 	fmt.Printf("Время: %d\n", ob.Timestamp)
@@ -327,7 +438,6 @@ func printOrderBookSummary(ob *OrderBook, showDetails bool) {
 		for i := 0; i < 3 && i < len(ob.Asks); i++ {
 			fmt.Printf("  %s - %s\n", ob.Asks[i].Price, ob.Asks[i].Quantity)
 		}
-
 		fmt.Printf("Биды (TOP 3):\n")
 		for i := 0; i < 3 && i < len(ob.Bids); i++ {
 			fmt.Printf("  %s - %s\n", ob.Bids[i].Price, ob.Bids[i].Quantity)
@@ -364,12 +474,19 @@ func saveResultsToFile(data interface{}, filename string) error {
 	return os.WriteFile(filename, jsonData, 0644)
 }
 
+// ================== main ==================
+
 func main() {
+	// Интерактивный ввод
+	params := getInteractiveParams()
+	fmt.Printf("DEBUG: base=%s, target=%s, amount=%s\n",
+		params.LeftCoinName, params.RightCoinName, formatFloatRU(params.LeftCoinVolume, 2))
+
+	// Остальной код — без функциональных изменений
 	config := Config{
 		DelayMS: 100,
 		Limit:   10,
 	}
-
 	manager := NewExchangeManager(config)
 
 	fmt.Println("=== Крипто-биржи Монитор ===")
@@ -384,13 +501,11 @@ func main() {
 	for _, exchange := range manager.exchanges {
 		fmt.Printf("\n=== Работа с %s ===\n", exchange.Name())
 
-		// Получаем стаканы для общих символов
 		orderBooks, err := exchange.GetMultipleOrderBooks(
 			commonSymbols,
 			config.Limit,
 			time.Duration(config.DelayMS)*time.Millisecond,
 		)
-
 		if err != nil {
 			log.Printf("Ошибка получения данных с %s: %v", exchange.Name(), err)
 			continue
@@ -398,7 +513,6 @@ func main() {
 
 		allResults[exchange.Name()] = orderBooks
 
-		// Выводим краткую информацию
 		fmt.Printf("Успешно получено стаканов: %d\n", len(orderBooks))
 		for _, ob := range orderBooks {
 			printOrderBookSummary(ob, false)
