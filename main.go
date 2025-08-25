@@ -2,16 +2,30 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/adshao/go-binance/v2"
 )
+
+// Конфигурация с API ключами
+type Config struct {
+	DelayMS       int
+	Limit         int
+	BinanceApiKey string
+	BinanceSecret string
+	BybitApiKey   string
+	BybitSecret   string
+}
 
 // Общие структуры данных
 type OrderBook struct {
@@ -29,18 +43,12 @@ type Order struct {
 
 type Exchange interface {
 	Name() string
-	GetSymbols() ([]string, error)
+	GetFilteredSymbols() ([]string, error)
 	GetOrderBook(symbol string, limit int) (*OrderBook, error)
 	GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error)
 }
 
-// Конфигурация
-type Config struct {
-	DelayMS int `json:"delay_ms"`
-	Limit   int `json:"limit"`
-}
-
-// Bybit API Response Structures
+// Bybit API Structures
 type BybitSymbolResponse struct {
 	RetCode int    `json:"retCode"`
 	RetMsg  string `json:"retMsg"`
@@ -50,10 +58,25 @@ type BybitSymbolResponse struct {
 }
 
 type BybitSymbol struct {
-	Symbol    string `json:"symbol"`
-	BaseCoin  string `json:"baseCoin"`
-	QuoteCoin string `json:"quoteCoin"`
-	Status    string `json:"status"`
+	Symbol      string `json:"symbol"`
+	Status      string `json:"status"`
+	MinOrderAmt string `json:"minOrderAmt"`
+	BaseCoin    string `json:"baseCoin"`
+	QuoteCoin   string `json:"quoteCoin"`
+}
+
+type BybitCoinInfoResponse struct {
+	RetCode int    `json:"retCode"`
+	RetMsg  string `json:"retMsg"`
+	Result  struct {
+		Rows []BybitCoinInfo `json:"rows"`
+	} `json:"result"`
+}
+
+type BybitCoinInfo struct {
+	Coin             string `json:"coin"`
+	DepositStatus    int    `json:"depositStatus"`
+	WithdrawalStatus int    `json:"withdrawalStatus"`
 }
 
 type BybitOrderBookResponse struct {
@@ -67,24 +90,78 @@ type BybitOrderBookResponse struct {
 	} `json:"result"`
 }
 
-// HTTP клиент для Bybit
-type BybitHTTPClient struct {
-	baseURL  string
-	client   *http.Client
-	config   Config
-	category string
+// Binance API Structures
+type BinanceCoinInfo struct {
+	Coin              string `json:"coin"`
+	DepositAllEnable  bool   `json:"depositAllEnable"`
+	WithdrawAllEnable bool   `json:"withdrawAllEnable"`
 }
 
-func NewBybitHTTPClient(config Config, category string) *BybitHTTPClient {
+// HTTP клиент для Bybit с авторизацией
+type BybitHTTPClient struct {
+	baseURL   string
+	client    *http.Client
+	config    Config
+	apiKey    string
+	secretKey string
+}
+
+func NewBybitHTTPClient(config Config) *BybitHTTPClient {
 	return &BybitHTTPClient{
-		baseURL:  "https://api.bybit.com",
-		client:   &http.Client{Timeout: 15 * time.Second},
-		config:   config,
-		category: category,
+		baseURL:   "https://api.bybit.com",
+		client:    &http.Client{Timeout: 15 * time.Second},
+		config:    config,
+		apiKey:    config.BybitApiKey,
+		secretKey: config.BybitSecret,
 	}
 }
 
-func (b *BybitHTTPClient) makeRequest(url string) ([]byte, error) {
+func (b *BybitHTTPClient) generateSignature(params string) string {
+	mac := hmac.New(sha256.New, []byte(b.secretKey))
+	mac.Write([]byte(params))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (b *BybitHTTPClient) makeAuthenticatedRequest(endpoint string, params map[string]string) ([]byte, error) {
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+
+	// Собираем параметры для подписи
+	var paramStr string
+	for k, v := range params {
+		if paramStr != "" {
+			paramStr += "&"
+		}
+		paramStr += k + "=" + v
+	}
+	paramStr += "&timestamp=" + timestamp
+
+	signature := b.generateSignature(paramStr)
+	url := fmt.Sprintf("%s%s?%s&signature=%s", b.baseURL, endpoint, paramStr, signature)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("X-BAPI-API-KEY", b.apiKey)
+	req.Header.Add("X-BAPI-TIMESTAMP", timestamp)
+	req.Header.Add("X-BAPI-SIGN", signature)
+	req.Header.Add("X-BAPI-RECV-WINDOW", "5000")
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (b *BybitHTTPClient) makePublicRequest(url string) ([]byte, error) {
 	resp, err := b.client.Get(url)
 	if err != nil {
 		return nil, err
@@ -98,15 +175,15 @@ func (b *BybitHTTPClient) makeRequest(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// Bybit implementation with HTTP
+// Bybit implementation
 type BybitExchange struct {
 	httpClient *BybitHTTPClient
 	config     Config
 }
 
-func NewBybitExchange(config Config, category string) *BybitExchange {
+func NewBybitExchange(config Config) *BybitExchange {
 	return &BybitExchange{
-		httpClient: NewBybitHTTPClient(config, category),
+		httpClient: NewBybitHTTPClient(config),
 		config:     config,
 	}
 }
@@ -115,10 +192,40 @@ func (b *BybitExchange) Name() string {
 	return "Bybit"
 }
 
-func (b *BybitExchange) GetSymbols() ([]string, error) {
+func (b *BybitExchange) getAvailableCoins() (map[string]bool, error) {
+	if b.config.BybitApiKey == "" || b.config.BybitSecret == "" {
+		return nil, fmt.Errorf("требуются API ключи Bybit для проверки ввода/вывода")
+	}
+
+	endpoint := "/v5/asset/coin/query-info"
+	data, err := b.httpClient.makeAuthenticatedRequest(endpoint, map[string]string{})
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса информации о монетах: %w", err)
+	}
+
+	var response BybitCoinInfoResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга информации о монетах: %w", err)
+	}
+
+	if response.RetCode != 0 {
+		return nil, fmt.Errorf("API error: %s", response.RetMsg)
+	}
+
+	availableCoins := make(map[string]bool)
+	for _, coin := range response.Result.Rows {
+		if coin.DepositStatus == 1 && coin.WithdrawalStatus == 1 {
+			availableCoins[coin.Coin] = true
+		}
+	}
+
+	return availableCoins, nil
+}
+
+func (b *BybitExchange) GetFilteredSymbols() ([]string, error) {
 	url := fmt.Sprintf("%s/v5/market/instruments-info?category=spot", b.httpClient.baseURL)
 
-	data, err := b.httpClient.makeRequest(url)
+	data, err := b.httpClient.makePublicRequest(url)
 	if err != nil {
 		return nil, fmt.Errorf("bybit: ошибка запроса: %w", err)
 	}
@@ -132,21 +239,48 @@ func (b *BybitExchange) GetSymbols() ([]string, error) {
 		return nil, fmt.Errorf("bybit: API error: %s", response.RetMsg)
 	}
 
-	var symbols []string
-	for _, symbol := range response.Result.List {
-		if symbol.Status == "Trading" {
-			symbols = append(symbols, symbol.Symbol)
+	// Получаем информацию о доступных монетах (требует API ключи)
+	var availableCoins map[string]bool
+	if b.config.BybitApiKey != "" && b.config.BybitSecret != "" {
+		availableCoins, err = b.getAvailableCoins()
+		if err != nil {
+			log.Printf("Предупреждение: не удалось получить информацию о монетах Bybit: %v", err)
 		}
 	}
 
-	return symbols, nil
+	var filteredSymbols []string
+	for _, symbol := range response.Result.List {
+		// Базовые фильтры
+		if !strings.HasSuffix(symbol.Symbol, "USDT") ||
+			symbol.Status != "Trading" ||
+			symbol.MinOrderAmt == "0" {
+			continue
+		}
+
+		// Дополнительная проверка ввода/вывода если есть API ключи
+		if availableCoins != nil {
+			baseAvailable := availableCoins[symbol.BaseCoin]
+			quoteAvailable := availableCoins[symbol.QuoteCoin]
+			if !baseAvailable || !quoteAvailable {
+				continue
+			}
+		}
+
+		filteredSymbols = append(filteredSymbols, symbol.Symbol)
+	}
+
+	if len(filteredSymbols) > 10 {
+		filteredSymbols = filteredSymbols[:10]
+	}
+
+	return filteredSymbols, nil
 }
 
 func (b *BybitExchange) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
 	url := fmt.Sprintf("%s/v5/market/orderbook?category=spot&symbol=%s&limit=%d",
 		b.httpClient.baseURL, symbol, limit)
 
-	data, err := b.httpClient.makeRequest(url)
+	data, err := b.httpClient.makePublicRequest(url)
 	if err != nil {
 		return nil, fmt.Errorf("bybit: ошибка запроса стакана: %w", err)
 	}
@@ -161,23 +295,6 @@ func (b *BybitExchange) GetOrderBook(symbol string, limit int) (*OrderBook, erro
 	}
 
 	return b.convertOrderBook(symbol, &response), nil
-}
-
-func (b *BybitExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
-	result := make(map[string]*OrderBook)
-
-	for _, symbol := range symbols {
-		orderBook, err := b.GetOrderBook(symbol, limit)
-		if err != nil {
-			log.Printf("Bybit: ошибка для %s: %v", symbol, err)
-			continue
-		}
-
-		result[symbol] = orderBook
-		time.Sleep(delay)
-	}
-
-	return result, nil
 }
 
 func (b *BybitExchange) convertOrderBook(symbol string, response *BybitOrderBookResponse) *OrderBook {
@@ -202,6 +319,23 @@ func (b *BybitExchange) convertOrderBook(symbol string, response *BybitOrderBook
 	return ob
 }
 
+func (b *BybitExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
+	result := make(map[string]*OrderBook)
+
+	for _, symbol := range symbols {
+		orderBook, err := b.GetOrderBook(symbol, limit)
+		if err != nil {
+			log.Printf("Bybit: ошибка для %s: %v", symbol, err)
+			continue
+		}
+
+		result[symbol] = orderBook
+		time.Sleep(delay)
+	}
+
+	return result, nil
+}
+
 // Binance implementation
 type BinanceExchange struct {
 	client *binance.Client
@@ -209,7 +343,7 @@ type BinanceExchange struct {
 }
 
 func NewBinanceExchange(config Config) *BinanceExchange {
-	client := binance.NewClient("", "") // публичные данные
+	client := binance.NewClient(config.BinanceApiKey, config.BinanceSecret)
 	return &BinanceExchange{
 		client: client,
 		config: config,
@@ -220,29 +354,72 @@ func (b *BinanceExchange) Name() string {
 	return "Binance"
 }
 
-func (b *BinanceExchange) GetSymbols() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+func (b *BinanceExchange) getAvailableCoins() (map[string]bool, error) {
+	if b.config.BinanceApiKey == "" || b.config.BinanceSecret == "" {
+		return nil, fmt.Errorf("требуются API ключи Binance для проверки ввода/вывода")
+	}
 
+	ctx := context.Background()
+	coins, err := b.client.NewGetAllCoinsInfoService().Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения информации о монетах: %w", err)
+	}
+
+	availableCoins := make(map[string]bool)
+	for _, coin := range coins {
+		if coin.DepositAllEnable && coin.WithdrawAllEnable {
+			availableCoins[coin.Coin] = true
+		}
+	}
+
+	return availableCoins, nil
+}
+
+func (b *BinanceExchange) GetFilteredSymbols() ([]string, error) {
+	ctx := context.Background()
 	exchangeInfo, err := b.client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("binance: ошибка получения информации: %w", err)
 	}
 
-	var symbols []string
-	for _, symbol := range exchangeInfo.Symbols {
-		if symbol.Status == "TRADING" {
-			symbols = append(symbols, symbol.Symbol)
+	// Получаем информацию о доступных монетах (требует API ключи)
+	var availableCoins map[string]bool
+	if b.config.BinanceApiKey != "" && b.config.BinanceSecret != "" {
+		availableCoins, err = b.getAvailableCoins()
+		if err != nil {
+			log.Printf("Предупреждение: не удалось получить информацию о монетах Binance: %v", err)
 		}
 	}
 
-	return symbols, nil
+	var filteredSymbols []string
+	for _, symbol := range exchangeInfo.Symbols {
+		// Базовые фильтры
+		if !strings.HasSuffix(symbol.Symbol, "USDT") ||
+			symbol.Status != "TRADING" ||
+			!symbol.IsSpotTradingAllowed {
+			continue
+		}
+
+		// Дополнительная проверка ввода/вывода если есть API ключи
+		if availableCoins != nil {
+			baseCoin := strings.TrimSuffix(symbol.Symbol, "USDT")
+			if !availableCoins[baseCoin] || !availableCoins["USDT"] {
+				continue
+			}
+		}
+
+		filteredSymbols = append(filteredSymbols, symbol.Symbol)
+	}
+
+	if len(filteredSymbols) > 10 {
+		filteredSymbols = filteredSymbols[:10]
+	}
+
+	return filteredSymbols, nil
 }
 
 func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+	ctx := context.Background()
 	binanceOrderBook, err := b.client.NewDepthService().
 		Symbol(symbol).
 		Limit(limit).
@@ -252,23 +429,6 @@ func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*OrderBook, er
 	}
 
 	return b.convertOrderBook(symbol, binanceOrderBook), nil
-}
-
-func (b *BinanceExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
-	result := make(map[string]*OrderBook)
-
-	for _, symbol := range symbols {
-		orderBook, err := b.GetOrderBook(symbol, limit)
-		if err != nil {
-			log.Printf("Binance: ошибка для %s: %v", symbol, err)
-			continue
-		}
-
-		result[symbol] = orderBook
-		time.Sleep(delay)
-	}
-
-	return result, nil
 }
 
 func (b *BinanceExchange) convertOrderBook(symbol string, binanceOB *binance.DepthResponse) *OrderBook {
@@ -289,7 +449,24 @@ func (b *BinanceExchange) convertOrderBook(symbol string, binanceOB *binance.Dep
 	return ob
 }
 
-// ExchangeManager управляет несколькими биржами
+func (b *BinanceExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
+	result := make(map[string]*OrderBook)
+
+	for _, symbol := range symbols {
+		orderBook, err := b.GetOrderBook(symbol, limit)
+		if err != nil {
+			log.Printf("Binance: ошибка для %s: %v", symbol, err)
+			continue
+		}
+
+		result[symbol] = orderBook
+		time.Sleep(delay)
+	}
+
+	return result, nil
+}
+
+// ExchangeManager
 type ExchangeManager struct {
 	exchanges []Exchange
 	config    Config
@@ -300,13 +477,9 @@ func NewExchangeManager(config Config) *ExchangeManager {
 		config: config,
 		exchanges: []Exchange{
 			NewBinanceExchange(config),
-			NewBybitExchange(config, "spot"),
+			NewBybitExchange(config),
 		},
 	}
-}
-
-func (em *ExchangeManager) AddExchange(exchange Exchange) {
-	em.exchanges = append(em.exchanges, exchange)
 }
 
 func (em *ExchangeManager) GetExchangeNames() []string {
@@ -317,57 +490,27 @@ func (em *ExchangeManager) GetExchangeNames() []string {
 	return names
 }
 
-// Утилитные функции
-func printOrderBookSummary(ob *OrderBook, showDetails bool) {
+func printOrderBookSummary(ob *OrderBook) {
 	fmt.Printf("\n=== %s - %s ===\n", ob.Exchange, ob.Symbol)
 	fmt.Printf("Время: %d\n", ob.Timestamp)
-
-	if showDetails {
-		fmt.Printf("Аски (TOP 3):\n")
-		for i := 0; i < 3 && i < len(ob.Asks); i++ {
-			fmt.Printf("  %s - %s\n", ob.Asks[i].Price, ob.Asks[i].Quantity)
-		}
-
-		fmt.Printf("Биды (TOP 3):\n")
-		for i := 0; i < 3 && i < len(ob.Bids); i++ {
-			fmt.Printf("  %s - %s\n", ob.Bids[i].Price, ob.Bids[i].Quantity)
-		}
-	} else {
-		fmt.Printf("Аски: %d записей, Биды: %d записей\n", len(ob.Asks), len(ob.Bids))
-		if len(ob.Asks) > 0 && len(ob.Bids) > 0 {
-			fmt.Printf("Спред: %s\n", calculateSpread(ob.Asks[0].Price, ob.Bids[0].Price))
-		}
+	fmt.Printf("Аски (TOP 3):\n")
+	for i := 0; i < 3 && i < len(ob.Asks); i++ {
+		fmt.Printf("  %s - %s\n", ob.Asks[i].Price, ob.Asks[i].Quantity)
 	}
-}
-
-func calculateSpread(askPrice, bidPrice string) string {
-	ask := parseFloat(askPrice)
-	bid := parseFloat(bidPrice)
-	if ask == 0 {
-		return "N/A"
+	fmt.Printf("Биды (TOP 3):\n")
+	for i := 0; i < 3 && i < len(ob.Bids); i++ {
+		fmt.Printf("  %s - %s\n", ob.Bids[i].Price, ob.Bids[i].Quantity)
 	}
-	spreadPercent := (ask - bid) / ask * 100
-	return fmt.Sprintf("%.4f%%", spreadPercent)
-}
-
-func parseFloat(s string) float64 {
-	var f float64
-	fmt.Sscanf(s, "%f", &f)
-	return f
-}
-
-func saveResultsToFile(data interface{}, filename string) error {
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, jsonData, 0644)
 }
 
 func main() {
 	config := Config{
-		DelayMS: 100,
-		Limit:   10,
+		DelayMS:       100,
+		Limit:         10,
+		BinanceApiKey: "ВАШ_BINANCE_API_KEY",                  // Замените на свои ключи
+		BinanceSecret: "ВАШ_BINANCE_SECRET_KEY",               // Замените на свои ключи
+		BybitApiKey:   "VRpoz69CijtWoiY2NX ",                  // Замените на свои ключи
+		BybitSecret:   "B6crmVReLfQuorCqAaFEvAL2vDa8wzRVp3QD", // Замените на свои ключи
 	}
 
 	manager := NewExchangeManager(config)
@@ -375,53 +518,49 @@ func main() {
 	fmt.Println("=== Крипто-биржи Монитор ===")
 	fmt.Printf("Доступные биржи: %v\n", manager.GetExchangeNames())
 
-	// Общие символы для сравнения
-	commonSymbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT"}
-
-	// Собираем данные со всех бирж
-	allResults := make(map[string]map[string]*OrderBook)
+	exchangeSymbols := make(map[string][]string)
 
 	for _, exchange := range manager.exchanges {
-		fmt.Printf("\n=== Работа с %s ===\n", exchange.Name())
+		fmt.Printf("\n=== Получение пар с %s ===\n", exchange.Name())
 
-		// Получаем стаканы для общих символов
-		orderBooks, err := exchange.GetMultipleOrderBooks(
-			commonSymbols,
-			config.Limit,
-			time.Duration(config.DelayMS)*time.Millisecond,
-		)
+		symbols, err := exchange.GetFilteredSymbols()
+		if err != nil {
+			log.Printf("Ошибка получения пар с %s: %v", exchange.Name(), err)
+			continue
+		}
 
+		exchangeSymbols[exchange.Name()] = symbols
+		fmt.Printf("Найдено пар с доступным вводом/выводом: %d\n", len(symbols))
+
+		if len(symbols) > 0 {
+			fmt.Println("Список пар:")
+			for i, symbol := range symbols {
+				fmt.Printf("  %d. %s\n", i+1, symbol)
+			}
+		}
+	}
+
+	fmt.Printf("\n=== Получение стаканов ===\n")
+
+	for _, exchange := range manager.exchanges {
+		symbols := exchangeSymbols[exchange.Name()]
+		if len(symbols) == 0 {
+			continue
+		}
+
+		fmt.Printf("\n=== %s ===\n", exchange.Name())
+
+		orderBooks, err := exchange.GetMultipleOrderBooks(symbols, config.Limit, time.Duration(config.DelayMS)*time.Millisecond)
 		if err != nil {
 			log.Printf("Ошибка получения данных с %s: %v", exchange.Name(), err)
 			continue
 		}
 
-		allResults[exchange.Name()] = orderBooks
-
-		// Выводим краткую информацию
 		fmt.Printf("Успешно получено стаканов: %d\n", len(orderBooks))
 		for _, ob := range orderBooks {
-			printOrderBookSummary(ob, false)
+			printOrderBookSummary(ob)
 		}
 	}
 
-	// Сравниваем цены между биржами
-	fmt.Println("\n=== Сравнение цен между биржами ===")
-	for _, symbol := range commonSymbols {
-		fmt.Printf("\n%s:\n", symbol)
-		for exchangeName, orderBooks := range allResults {
-			if ob, exists := orderBooks[symbol]; exists && len(ob.Asks) > 0 && len(ob.Bids) > 0 {
-				fmt.Printf("  %s: Ask=%s, Bid=%s\n",
-					exchangeName, ob.Asks[0].Price, ob.Bids[0].Price)
-			}
-		}
-	}
-
-	// Детальный просмотр конкретного символа
-	fmt.Println("\n=== Детальная информация по BTCUSDT ===")
-	for _, orderBooks := range allResults {
-		if ob, exists := orderBooks["BTCUSDT"]; exists {
-			printOrderBookSummary(ob, true)
-		}
-	}
+	fmt.Println("\n=== Завершено ===")
 }
