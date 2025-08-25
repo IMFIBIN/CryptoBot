@@ -179,6 +179,7 @@ type BybitOrderBookResponse struct {
 	} `json:"result"`
 }
 
+// HTTP клиент для Bybit
 type BybitHTTPClient struct {
 	baseURL  string
 	client   *http.Client
@@ -386,15 +387,18 @@ func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*OrderBook, er
 
 func (b *BinanceExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*OrderBook, error) {
 	result := make(map[string]*OrderBook)
+
 	for _, symbol := range symbols {
 		orderBook, err := b.GetOrderBook(symbol, limit)
 		if err != nil {
 			log.Printf("Binance: ошибка для %s: %v", symbol, err)
 			continue
 		}
+
 		result[symbol] = orderBook
 		time.Sleep(delay)
 	}
+
 	return result, nil
 }
 
