@@ -11,4 +11,5 @@ require (
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 )
