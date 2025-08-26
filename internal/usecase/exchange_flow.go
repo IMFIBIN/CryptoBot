@@ -10,6 +10,9 @@ import (
 
 	"cryptobot/internal/domain"
 	"cryptobot/internal/transport/cli"
+
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // Run — единая точка сценария:
@@ -84,6 +87,9 @@ func Run(cfg domain.Config, exchanges []domain.Exchange) error {
 	}
 	var best *quote
 
+	// форматер для вывода чисел
+	pr := message.NewPrinter(language.Russian)
+
 	for exName, books := range allResults {
 		ob, ok := books[symbol]
 		if !ok || ob == nil || len(ob.Asks) == 0 {
@@ -97,6 +103,13 @@ func Run(cfg domain.Config, exchanges []domain.Exchange) error {
 		}
 		fmt.Printf("%s → получим ~ %.8f %s, средняя цена ~ %.8f USDT\n", exName, qty, right, avgPrice)
 
+		// Остаток USDT после покупки на этой бирже
+		spent := avgPrice * qty
+		leftover := params.LeftCoinVolume - spent
+		if leftover > 0 {
+			pr.Printf("  Остаток USDT: %0.2f\n", leftover)
+		}
+
 		if best == nil || avgPrice < best.avgPrice {
 			best = &quote{exName: exName, qty: qty, avgPrice: avgPrice}
 		}
@@ -105,6 +118,13 @@ func Run(cfg domain.Config, exchanges []domain.Exchange) error {
 	if best != nil {
 		fmt.Printf("\nЛучший обмен: %s → %.8f %s по средней цене ~ %.8f USDT\n",
 			best.exName, best.qty, right, best.avgPrice)
+
+		// Остаток USDT для лучшего обмена
+		bestSpent := best.avgPrice * best.qty
+		bestLeftover := params.LeftCoinVolume - bestSpent
+		if bestLeftover > 0 {
+			pr.Printf("Остаток USDT: %0.2f\n", bestLeftover)
+		}
 	} else {
 		fmt.Println("\nНе удалось рассчитать покупку: нет подходящих котировок.")
 	}
