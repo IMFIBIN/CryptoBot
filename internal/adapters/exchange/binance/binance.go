@@ -19,14 +19,15 @@ type BinanceExchange struct {
 
 func New(config domain.Config) *BinanceExchange {
 	client := gbinance.NewClient("", "")
-	client.HTTPClient = &http.Client{Timeout: 12 * time.Second}
+	// Чуть мягче таймаут: не висим долго, но и не рвём слишком быстро
+	client.HTTPClient = &http.Client{Timeout: 7 * time.Second}
 	return &BinanceExchange{client: client, config: config}
 }
 
 func (b *BinanceExchange) Name() string { return "Binance" }
 
 func (b *BinanceExchange) GetSymbols() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	exInfo, err := b.client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
@@ -53,15 +54,16 @@ func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*domain.OrderB
 	}
 
 	var depth *gbinance.DepthResponse
-	err := retry.WithRetry(3, 1*time.Second, func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 2 попытки по 5s — компромисс между скоростью и стабильностью
+	err := retry.WithRetry(2, 500*time.Millisecond, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var err error
 		depth, err = b.client.NewDepthService().Symbol(symbol).Limit(chosen).Do(ctx)
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("binance: ошибка стакана для %s (limit=%d): %w", symbol, chosen, err)
+		return nil, fmt.Errorf("binance: стакан %s (limit=%d): %w", symbol, chosen, err)
 	}
 
 	ob := &domain.OrderBook{
@@ -80,14 +82,23 @@ func (b *BinanceExchange) GetOrderBook(symbol string, limit int) (*domain.OrderB
 
 func (b *BinanceExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*domain.OrderBook, error) {
 	res := make(map[string]*domain.OrderBook)
+	var lastErr error
 	for _, s := range symbols {
 		ob, err := b.GetOrderBook(s, limit)
 		if err != nil {
-			// не падаем на одной ошибке
+			lastErr = err
+			if delay > 0 {
+				time.Sleep(delay)
+			}
 			continue
 		}
 		res[s] = ob
-		time.Sleep(delay)
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	if len(res) == 0 && lastErr != nil {
+		return nil, lastErr
 	}
 	return res, nil
 }

@@ -17,13 +17,11 @@ type OrderBook struct {
 	Bids      []Order
 }
 
-// Параметры запроса стаканов и задержек
 type Config struct {
 	DelayMS int `json:"delay_ms"`
 	Limit   int `json:"limit"`
 }
 
-// Контракт адаптера биржи
 type Exchange interface {
 	Name() string
 	GetSymbols() ([]string, error)
