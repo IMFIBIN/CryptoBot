@@ -11,9 +11,6 @@ import (
 
 	"cryptobot/internal/domain"
 	"cryptobot/internal/transport/cli"
-
-	"golang.org/x/text/language"
-	"golang.org/x/text/message"
 )
 
 // Run — основной сценарий:
@@ -74,18 +71,16 @@ func Run(cfg domain.Config, exchanges []domain.Exchange) error {
 		}
 	}
 
-	pr := message.NewPrinter(language.Russian)
-
 	// Ветки BUY/SELL
 	if params.Action == "sell" {
-		return runSellFlow(pr, params, allResults, right, symbol)
+		return runSellFlow(params, allResults, right, symbol)
 	}
-	return runBuyFlow(pr, params, allResults, right, symbol)
+	return runBuyFlow(params, allResults, right, symbol)
 }
 
 // ===================== BUY FLOW =====================
 
-func runBuyFlow(pr *message.Printer, params cli.InputParams, allResults map[string]map[string]*domain.OrderBook, right, symbol string) error {
+func runBuyFlow(params cli.InputParams, allResults map[string]map[string]*domain.OrderBook, right, symbol string) error {
 	amountUSDT := params.LeftCoinVolume
 
 	// 4) Сценарий #1 (лучшая ОДНА биржа)
@@ -101,11 +96,14 @@ func runBuyFlow(pr *message.Printer, params cli.InputParams, allResults map[stri
 		if !ok || ob == nil || len(ob.Asks) == 0 {
 			continue
 		}
-		qty, avgPrice := buyQtyFromAsks(ob.Asks, amountUSDT)
+		qty, avgPrice, spent := buyQtyFromAsks(ob.Asks, amountUSDT)
 		if qty <= 0 {
 			continue
 		}
 		fmt.Printf("%s → получим ~ %.8f %s, средняя цена ~ %.8f USDT\n", exName, qty, right, avgPrice)
+		if spent < amountUSDT {
+			fmt.Printf("  Лимит стакана исчерпан: потрачено %.2f USDT, остаток %.2f USDT не использован\n", spent, amountUSDT-spent)
+		}
 		if best == nil || avgPrice < best.avgPrice {
 			best = &quote{exName: exName, qty: qty, avgPrice: avgPrice}
 		}
@@ -129,33 +127,45 @@ func runBuyFlow(pr *message.Printer, params cli.InputParams, allResults map[stri
 	if len(participating) > 0 {
 		split := amountUSDT / float64(len(participating))
 		var totalSpent float64
+		var totalLeftover float64
+
 		for _, exName := range participating {
 			ob := allResults[exName][symbol]
-			qty, avgPrice := buyQtyFromAsks(ob.Asks, split)
+			qty, avgPrice, spent := buyQtyFromAsks(ob.Asks, split)
 			if qty <= 0 {
+				fmt.Printf("%s: недостаточная ликвидность по %s на сумму %.2f USDT\n", exName, symbol, split)
+				totalLeftover += split
 				continue
 			}
+
 			fmt.Printf("%s: на %.2f USDT → %.8f %s, avg=%.8f\n", exName, split, qty, right, avgPrice)
-			spent := avgPrice * qty
+			if spent < split {
+				fmt.Printf("  Лимит стакана исчерпан: потрачено %.2f USDT, остаток %.2f USDT не использован\n", spent, split-spent)
+				totalLeftover += split - spent
+			}
+
 			totalSpent += spent
 			scen2Qty += qty
 		}
+
 		if scen2Qty > 0 {
-			scen2Avg = totalSpent / scen2Qty
+			scen2Avg := totalSpent / scen2Qty
 			fmt.Printf("Итого (равное): %.8f %s, avg=%.8f\n", scen2Qty, right, scen2Avg)
+			fmt.Printf("Итого потрачено: %.2f USDT", totalSpent)
+			if totalLeftover > 0 {
+				fmt.Printf(", остаток: %.2f USDT", totalLeftover)
+			}
+			fmt.Println()
+		} else {
+			fmt.Println("Итого (равное): не удалось купить — нет ликвидности.")
 		}
 	}
 
 	// 6) Сценарий #3 (оптимальное распределение по всем биржам)
-	fmt.Printf("\n=== Сценарий #3 (BUY): оптимальное распределение на %.2f USDT ===\n", amountUSDT)
-	buyPlan, buyTotalQty, buyAvgPrice, _, _ := optimizeBuy(allResults, symbol, amountUSDT)
+	_, buyTotalQty, buyAvgPrice, _, _ := optimizeBuy(allResults, symbol, amountUSDT)
 	var scen3Qty, scen3Avg float64
 	if buyTotalQty > 0 {
-		for _, st := range buyPlan {
-			fmt.Printf("  %s: %.8f %s по %.8f USDT (", st.Exchange, st.Qty, right, st.Price)
-			pr.Printf("%0.2f", st.Usdt)
-			fmt.Printf(" USDT)\n")
-		}
+		// без заголовка и детализации — только итог
 		fmt.Printf("Итого: %.8f %s, avg=%.8f\n", buyTotalQty, right, buyAvgPrice)
 		scen3Qty = buyTotalQty
 		scen3Avg = buyAvgPrice
@@ -219,7 +229,7 @@ func compareBuyScenarios(right string, scen1Qty, scen1Avg, scen2Qty, scen2Avg, s
 
 // ===================== SELL FLOW =====================
 
-func runSellFlow(pr *message.Printer, params cli.InputParams, allResults map[string]map[string]*domain.OrderBook, right, symbol string) error {
+func runSellFlow(params cli.InputParams, allResults map[string]map[string]*domain.OrderBook, right, symbol string) error {
 	amountCoin := params.LeftCoinVolume // пользователь ввёл количество монеты right для продажи
 
 	// 4) Сценарий #1 (лучшая ОДНА биржа)
@@ -282,14 +292,9 @@ func runSellFlow(pr *message.Printer, params cli.InputParams, allResults map[str
 
 	// 6) Сценарий #3 (оптимальное распределение)
 	fmt.Printf("\n=== Сценарий #3 (SELL): оптимальное распределение %.8f %s ===\n", amountCoin, right)
-	sellPlan, totalUSDT, sellAvgPrice, soldQty, _ := optimizeSell(allResults, symbol, amountCoin)
+	_, totalUSDT, sellAvgPrice, soldQty, _ := optimizeSell(allResults, symbol, amountCoin)
 	var scen3USDT, scen3Avg float64
 	if soldQty > 0 {
-		for _, st := range sellPlan {
-			fmt.Printf("  %s: продать %.8f %s по %.8f USDT (", st.Exchange, st.Qty, right, st.Price)
-			pr.Printf("%0.2f", st.Usdt)
-			fmt.Printf(" USDT)\n")
-		}
 		fmt.Printf("Итого: %.2f USDT, avg=%.8f\n", totalUSDT, sellAvgPrice)
 		scen3USDT = totalUSDT
 		scen3Avg = sellAvgPrice
@@ -485,12 +490,13 @@ func combinedBids(all map[string]map[string]*domain.OrderBook, symbol string) []
 
 // ===== Расчётные утилиты для сценариев #1 и #2 =====
 
-// buyQtyFromAsks — сколько монеты можно купить на сумму usdt на ОДНОЙ бирже
-func buyQtyFromAsks(asks []domain.Order, usdt float64) (qty float64, avgPrice float64) {
-	if usdt <= 0 {
-		return 0, 0
+// buyQtyFromAsks рассчитывает, сколько целевой монеты можно купить
+// на сумму usdt. Возвращает: количество, среднюю цену и реально потраченное USDT.
+func buyQtyFromAsks(asks []domain.Order, usdt float64) (qty, avgPrice, spent float64) {
+	if usdt <= 0 || len(asks) == 0 {
+		return 0, 0, 0
 	}
-	var spent float64
+
 	for _, a := range asks {
 		p, err1 := strconv.ParseFloat(a.Price, 64)
 		q, err2 := strconv.ParseFloat(a.Quantity, 64)
@@ -515,7 +521,7 @@ func buyQtyFromAsks(asks []domain.Order, usdt float64) (qty float64, avgPrice fl
 	if qty > 0 {
 		avgPrice = spent / qty
 	}
-	return qty, avgPrice
+	return qty, avgPrice, spent
 }
 
 // sellQtyFromBids — сколько USDT можно выручить, продав qty монеты на ОДНОЙ бирже
