@@ -13,7 +13,6 @@ type Level struct {
 	Qty      float64
 }
 
-// Слияние всех asks (для BUY) — в порядке возрастания цены.
 func CombinedAsks(books map[string]*domain.OrderBook) []Level {
 	var out []Level
 	for ex, ob := range books {
@@ -33,7 +32,6 @@ func CombinedAsks(books map[string]*domain.OrderBook) []Level {
 	return out
 }
 
-// Слияние всех bids (для SELL) — в порядке убывания цены.
 func CombinedBids(books map[string]*domain.OrderBook) []Level {
 	var out []Level
 	for ex, ob := range books {

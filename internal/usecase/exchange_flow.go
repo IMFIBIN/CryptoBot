@@ -19,16 +19,6 @@ type snap struct {
 	res  scenario.Result
 }
 
-func Run(cfg domain.Config, exchanges []domain.Exchange) error {
-	pr := cli.NewCLIPresenter()
-	strategies := []scenario.Strategy{
-		scenario.BestSingle{},
-		scenario.EqualSplit{},
-		scenario.Optimal{},
-	}
-	return runCore(cfg, exchanges, pr, strategies)
-}
-
 func RunWithStrategies(
 	cfg domain.Config,
 	exchanges []domain.Exchange,

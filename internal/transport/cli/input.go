@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"cryptobot/internal/shared/format"
 	"fmt"
 	"os"
 	"strconv"
@@ -49,7 +50,7 @@ func GetInteractiveParams() InputParams {
 
 		// Контекст (дружественное подтверждение выбора)
 		fmt.Printf("\nОбмениваем USDT на %s\nДоступно USDT: %s\n",
-			params.RightCoinName, humanUSDT(params.LeftCoinVolume))
+			params.RightCoinName, format.FloatRU(params.LeftCoinVolume, 2))
 
 	} else {
 		// SELL: продаём выбранную монету, получаем USDT
@@ -127,40 +128,4 @@ func askFloat(r *bufio.Reader, prompt string, def float64) float64 {
 		}
 		fmt.Println("Введите число (например, 1000 или 0,5).")
 	}
-}
-
-func humanUSDT(v float64) string {
-	s := fmt.Sprintf("%.2f", v)
-	intPart, frac := split2(s, ".")
-	intPart = withThinSpaces(intPart)
-	return intPart + "," + frac // запятая как в примерах
-}
-
-func split2(s, sep string) (string, string) {
-	i := strings.LastIndex(s, sep)
-	if i < 0 {
-		return s, ""
-	}
-	return s[:i], s[i+1:]
-}
-
-func withThinSpaces(s string) string {
-	// добавим пробелы между тысячами справа налево
-	if len(s) <= 3 {
-		return s
-	}
-	var out []byte
-	cnt := 0
-	for i := len(s) - 1; i >= 0; i-- {
-		out = append(out, s[i])
-		cnt++
-		if cnt%3 == 0 && i != 0 {
-			out = append(out, ' ')
-		}
-	}
-	// reverse
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return string(out)
 }

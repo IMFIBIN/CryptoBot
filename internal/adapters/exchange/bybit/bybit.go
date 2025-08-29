@@ -30,7 +30,7 @@ func (c *httpClient) get(url string) ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("HTTP %s", resp.Status)
 		}
@@ -49,7 +49,7 @@ type bybitExchange struct {
 	config domain.Config
 }
 
-func New(config domain.Config) *bybitExchange {
+func New(config domain.Config) domain.Exchange {
 	return &bybitExchange{
 		http:   newHTTPClient(),
 		config: config,

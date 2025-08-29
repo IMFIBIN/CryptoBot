@@ -13,7 +13,6 @@ type CLIPresenter struct {
 	fees map[string]scenario.FeeConfig
 }
 
-func NewCLIPresenter() *CLIPresenter { return &CLIPresenter{fees: map[string]scenario.FeeConfig{}} }
 func NewCLIPresenterWithFees(fees map[string]scenario.FeeConfig) *CLIPresenter {
 	cp := make(map[string]scenario.FeeConfig, len(fees))
 	for k, v := range fees {
@@ -39,7 +38,7 @@ func (c *CLIPresenter) ShowOrderBookSummary(ob *domain.OrderBook) {
 	}
 }
 
-func (c *CLIPresenter) ShowCrossExchangeLine(_symbol, exchange, ask, bid string) {
+func (c *CLIPresenter) ShowCrossExchangeLine(_ string, exchange, ask, bid string) {
 	fmt.Printf("  %s: Ask=%s, Bid=%s\n", exchange, ask, bid)
 }
 
@@ -51,7 +50,7 @@ func (c *CLIPresenter) ShowScenarioHeader(name string, dir scenario.Direction) {
 	}
 }
 
-func (c *CLIPresenter) ShowBuyTotals(_name, _right string, res scenario.Result, amount float64) {
+func (c *CLIPresenter) ShowBuyTotals(_, _ string, res scenario.Result, amount float64) {
 	fmt.Printf("Итого: %.8f %s, средняя цена за 1 %s = %.8f USDT\n",
 		res.TotalQty, res.Asset, res.Asset, res.AveragePrice)
 	if res.Leftover > 0 {
@@ -69,7 +68,7 @@ func (c *CLIPresenter) ShowBuyTotals(_name, _right string, res scenario.Result, 
 	}
 }
 
-func (c *CLIPresenter) ShowSellTotals(_name, _right string, res scenario.Result) {
+func (c *CLIPresenter) ShowSellTotals(_, _ string, res scenario.Result) {
 	fmt.Printf("Итого: %.2f USDT, средняя цена продажи 1 %s = %.8f USDT\n",
 		res.TotalUSDT, res.Asset, res.AveragePrice)
 	byEx := c.aggregateSell(res.Legs)
@@ -83,14 +82,14 @@ func (c *CLIPresenter) ShowSellTotals(_name, _right string, res scenario.Result)
 	}
 }
 
-func (c *CLIPresenter) ShowBuyComparison(_bestName, _right string, rows []string) {
+func (c *CLIPresenter) ShowBuyComparison(_, _ string, rows []string) {
 	fmt.Println("\n=== Итоговое сравнение сценариев (BUY) ===")
 	for _, r := range rows {
 		fmt.Println(r)
 	}
 }
 
-func (c *CLIPresenter) ShowSellComparison(_bestName, _right string, rows []string) {
+func (c *CLIPresenter) ShowSellComparison(_, _ string, rows []string) {
 	fmt.Println("\n=== Итоговое сравнение сценариев (SELL) ===")
 	for _, r := range rows {
 		fmt.Println(r)

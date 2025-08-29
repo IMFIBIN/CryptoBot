@@ -18,19 +18,19 @@ func main() {
 		DelayMS: 100,
 	}
 
-	// 1) Комиссии/минимумы – передадим их в презентер,
-	//    чтобы он корректно показывал "комиссия: ... USDT".
+	// Комиссии/минимумы — используем в презентере для печати комиссии.
 	fees := map[string]scenario.FeeConfig{
-		"Binance": {FeePct: 0.001, MinQty: 0, MinNotional: 10}, // 0.10%
-		"Bybit":   {FeePct: 0.001, MinQty: 0, MinNotional: 10}, // 0.10%
+		"Binance": {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"Bybit":   {FeePct: 0.001, MinQty: 0, MinNotional: 10},
 	}
 
+	// Если в адаптерах New теперь возвращает domain.Exchange — всё ок.
 	exchanges := []domain.Exchange{
 		binanceadapter.New(cfg),
 		bybitadapter.New(cfg),
 	}
 
-	// 2) Презентер с комиссиями (нужен для вывода "комиссия: ... USDT")
+	// Презентер с комиссиями.
 	pr := cli.NewCLIPresenterWithFees(fees)
 
 	strategies := []scenario.Strategy{
@@ -39,9 +39,9 @@ func main() {
 		scenario.Optimal{},
 	}
 
-	// 3) Не глотаем ошибку — напечатаем и выйдем с кодом 1.
+	// Печатаем ошибку и выходим. Явно игнорируем ошибку записи в Stderr.
 	if err := usecase.RunWithStrategies(cfg, exchanges, pr, strategies); err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка выполнения: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Ошибка выполнения: %v\n", err)
 		os.Exit(1)
 	}
 }
