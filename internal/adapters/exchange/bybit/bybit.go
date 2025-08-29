@@ -19,13 +19,13 @@ type httpClient struct {
 func newHTTPClient() *httpClient {
 	return &httpClient{
 		baseURL: "https://api.bybit.com",
-		client:  &http.Client{Timeout: 12 * time.Second},
+		client:  &http.Client{Timeout: 7 * time.Second}, // мягкий таймаут
 	}
 }
 
 func (c *httpClient) get(url string) ([]byte, error) {
 	var body []byte
-	err := retry.WithRetry(3, 1*time.Second, func() error {
+	err := retry.WithRetry(2, 400*time.Millisecond, func() error {
 		resp, err := c.client.Get(url)
 		if err != nil {
 			return err
@@ -149,14 +149,23 @@ func (b *bybitExchange) GetOrderBook(symbol string, limit int) (*domain.OrderBoo
 
 func (b *bybitExchange) GetMultipleOrderBooks(symbols []string, limit int, delay time.Duration) (map[string]*domain.OrderBook, error) {
 	res := make(map[string]*domain.OrderBook)
+	var lastErr error
 	for _, s := range symbols {
 		ob, err := b.GetOrderBook(s, limit)
 		if err != nil {
-			// не падаем на одной ошибке
+			lastErr = err
+			if delay > 0 {
+				time.Sleep(delay)
+			}
 			continue
 		}
 		res[s] = ob
-		time.Sleep(delay)
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	if len(res) == 0 && lastErr != nil {
+		return nil, lastErr
 	}
 	return res, nil
 }
