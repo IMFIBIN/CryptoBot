@@ -5,7 +5,13 @@ import (
 	"os"
 
 	binanceadapter "cryptobot/internal/adapters/exchange/binance"
+	bitgetadapter "cryptobot/internal/adapters/exchange/bitget"
 	bybitadapter "cryptobot/internal/adapters/exchange/bybit"
+	gateadapter "cryptobot/internal/adapters/exchange/gate"
+	htxadapter "cryptobot/internal/adapters/exchange/htx"
+	kucoinadapter "cryptobot/internal/adapters/exchange/kucoin"
+	okxadapter "cryptobot/internal/adapters/exchange/okx"
+
 	"cryptobot/internal/domain"
 	"cryptobot/internal/transport/cli"
 	"cryptobot/internal/usecase"
@@ -18,28 +24,38 @@ func main() {
 		DelayMS: 100,
 	}
 
-	// Комиссии/минимумы — используем в презентере для печати комиссии.
+	// Комиссии/минимумы для печати и валидации (при необходимости подстрой под реальные)
 	fees := map[string]scenario.FeeConfig{
 		"Binance": {FeePct: 0.001, MinQty: 0, MinNotional: 10},
 		"Bybit":   {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"OKX":     {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"KuCoin":  {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"Bitget":  {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"HTX":     {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+		"Gate":    {FeePct: 0.001, MinQty: 0, MinNotional: 10},
 	}
 
-	// Если в адаптерах New теперь возвращает domain.Exchange — всё ок.
 	exchanges := []domain.Exchange{
 		binanceadapter.New(cfg),
 		bybitadapter.New(cfg),
+		okxadapter.New(cfg),
+		kucoinadapter.New(cfg),
+		bitgetadapter.New(cfg),
+		htxadapter.New(cfg),
+		gateadapter.New(cfg),
 	}
 
-	// Презентер с комиссиями.
+	// CLI-презентер с комиссиями
 	pr := cli.NewCLIPresenterWithFees(fees)
 
+	// Стратегии
 	strategies := []scenario.Strategy{
 		scenario.BestSingle{},
 		scenario.EqualSplit{},
 		scenario.Optimal{},
 	}
 
-	// Печатаем ошибку и выходим. Явно игнорируем ошибку записи в Stderr.
+	// Запуск
 	if err := usecase.RunWithStrategies(cfg, exchanges, pr, strategies); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Ошибка выполнения: %v\n", err)
 		os.Exit(1)
