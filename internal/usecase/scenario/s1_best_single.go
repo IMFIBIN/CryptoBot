@@ -1,69 +1,86 @@
 package scenario
 
-import "cryptobot/internal/usecase/orderbook"
+import (
+	"sort"
+
+	"cryptobot/internal/usecase/orderbook"
+)
 
 type BestSingle struct{}
 
 func (BestSingle) Name() string { return "Сценарий #1 (лучшая биржа)" }
 
 func (BestSingle) Run(in Inputs) Result {
-	var best Result
+	res := Result{Asset: in.Right}
+	type cand struct {
+		ex    string
+		qty   float64
+		avg   float64
+		net   float64
+		fee   float64
+		obQty float64 // для покрытия
+	}
+	var cs []cand
 
-	switch in.Direction {
-	case Buy:
-		for ex, ob := range in.OrderBooks {
-			if ob == nil || len(ob.Asks) == 0 {
-				continue
-			}
-			fee := in.Fees[ex].FeePct
-			qty, avg, spent := orderbook.BuyQtyFromAsksWithFee(ob.Asks, in.Amount, fee)
+	for ex, ob := range in.OrderBooks {
+		f, ok := in.Fees[ex]
+		if !ok || ob == nil {
+			continue
+		}
+		switch in.Direction {
+		case Buy:
+			qty, avg, spentNet, fee := orderbook.BuyQtyFromAsksWithFee(ob.Asks, in.Amount, f)
 			if qty <= 0 {
 				continue
 			}
-			// фильтры минимумов
-			cfg := in.Fees[ex]
-			if (cfg.MinQty > 0 && qty < cfg.MinQty) || (cfg.MinNotional > 0 && spent < cfg.MinNotional) {
+			cs = append(cs, cand{ex: ex, qty: qty, avg: avg, net: spentNet, fee: fee, obQty: qty})
+
+		case Sell:
+			receivedNet, avg, fee := orderbook.SellFromBidsWithFee(ob.Bids, in.Amount, f)
+			if receivedNet <= 0 || avg <= 0 {
 				continue
 			}
-			r := Result{
-				Legs:         []Leg{{Exchange: ex, Price: avg, Qty: qty, AmountUSDT: spent}},
-				TotalQty:     qty,
-				TotalUSDT:    spent,
-				AveragePrice: avg,
-				Leftover:     in.Amount - spent,
-				Asset:        in.Right,
-			}
-			if best.TotalQty == 0 || r.AveragePrice < best.AveragePrice {
-				best = r
-			}
-		}
-	case Sell:
-		for ex, ob := range in.OrderBooks {
-			if ob == nil || len(ob.Bids) == 0 {
-				continue
-			}
-			fee := in.Fees[ex].FeePct
-			usdt, avg := orderbook.SellFromBidsWithFee(ob.Bids, in.Amount, fee)
-			if usdt <= 0 {
-				continue
-			}
-			cfg := in.Fees[ex]
-			if cfg.MinNotional > 0 && usdt < cfg.MinNotional {
-				continue
-			}
-			r := Result{
-				Legs:         []Leg{{Exchange: ex, Price: avg, Qty: in.Amount, AmountUSDT: usdt}},
-				TotalQty:     in.Amount,
-				TotalUSDT:    usdt,
-				AveragePrice: avg,
-				Leftover:     0,
-				Asset:        in.Symbol[:len(in.Symbol)-4],
-			}
-			if best.TotalUSDT == 0 || r.TotalUSDT > best.TotalUSDT {
-				best = r
-			}
+			// qty == in.Amount (если хватило ликвидности)
+			cs = append(cs, cand{ex: ex, qty: in.Amount, avg: avg, net: receivedNet, fee: fee, obQty: in.Amount})
 		}
 	}
 
-	return best
+	if len(cs) == 0 {
+		return res
+	}
+
+	// выбрать лучшую биржу
+	if in.Direction == Buy {
+		sort.Slice(cs, func(i, j int) bool {
+			if cs[i].avg == cs[j].avg {
+				return cs[i].obQty > cs[j].obQty
+			}
+			return cs[i].avg < cs[j].avg
+		})
+	} else {
+		sort.Slice(cs, func(i, j int) bool {
+			if cs[i].avg == cs[j].avg {
+				return cs[i].obQty > cs[j].obQty
+			}
+			return cs[i].avg > cs[j].avg
+		})
+	}
+	best := cs[0]
+
+	if in.Direction == Buy {
+		res.Legs = []Leg{{Exchange: best.ex, Price: best.avg, Qty: best.qty, AmountUSDT: best.net, FeeUSDT: best.fee}}
+		res.TotalQty = best.qty
+		res.TotalUSDT = best.net
+		res.AveragePrice = best.avg
+		res.Leftover = in.Amount - best.net
+		res.Asset = in.Right
+	} else {
+		res.Legs = []Leg{{Exchange: best.ex, Price: best.avg, Qty: in.Amount, AmountUSDT: best.net, FeeUSDT: best.fee}}
+		res.TotalQty = in.Amount
+		res.TotalUSDT = best.net
+		res.AveragePrice = best.avg
+		res.Asset = in.Symbol[:len(in.Symbol)-4]
+	}
+
+	return res
 }
