@@ -9,21 +9,57 @@ import (
 
 	"cryptobot/internal/domain"
 	"cryptobot/internal/transport/cli"
+	"cryptobot/internal/usecase/fees"
 	"cryptobot/internal/usecase/orderbook"
-	"cryptobot/internal/usecase/presenter"
 	"cryptobot/internal/usecase/scenario"
 )
+
+// --- локальные интерфейсы, чтобы не зависеть от внешних типов ---
+
+// strategy — минимальный контракт для стратегий (совместим с scenario.BestSingle{}, EqualSplit{}, Optimal{}).
+type strategy interface {
+	Name() string
+	Run(in scenario.Inputs) scenario.Result
+}
+
+// presenterLite — минимальный набор методов, которые мы используем у презентера.
+type presenterLite interface {
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	ShowOrderBookSummary(ob *domain.OrderBook)
+	ShowCrossExchangeLine(symbol, exchange, ask, bid string)
+	ShowScenarioHeader(name string, dir scenario.Direction)
+	ShowBuyTotals(name, right string, res scenario.Result, amount float64)
+	ShowSellTotals(name, right string, res scenario.Result)
+	ShowBuyComparison(bestName, right string, rows []string)
+	ShowSellComparison(bestName, right string, rows []string)
+}
+
+// опциональный метод — если реализован, будет вызван; если нет — просто пропустим.
+type scenario1Rationale interface {
+	ShowScenario1Rationale(asset string, dir scenario.Direction, evals []scenario.ExchangeEval)
+}
 
 type snap struct {
 	name string
 	res  scenario.Result
 }
 
+func Run(cfg domain.Config, exchanges []domain.Exchange) error {
+	pr := cli.NewCLIPresenter()
+	strategies := []strategy{
+		scenario.BestSingle{},
+		scenario.EqualSplit{},
+		scenario.Optimal{},
+	}
+	return runCore(cfg, exchanges, pr, strategies)
+}
+
 func RunWithStrategies(
 	cfg domain.Config,
 	exchanges []domain.Exchange,
-	pr presenter.Presenter,
-	strategies []scenario.Strategy,
+	pr presenterLite,
+	strategies []strategy,
 ) error {
 	return runCore(cfg, exchanges, pr, strategies)
 }
@@ -38,8 +74,8 @@ type fetchRes struct {
 func runCore(
 	cfg domain.Config,
 	exchanges []domain.Exchange,
-	pr presenter.Presenter,
-	strategies []scenario.Strategy,
+	pr presenterLite,
+	strategies []strategy,
 ) error {
 	params := cli.GetInteractiveParams()
 
@@ -98,12 +134,12 @@ func runCore(
 			continue
 		}
 		if res.obs == nil || len(res.obs) == 0 {
-			pr.Warnf("Предупреждение: от %s не получено ни одного стакана (возможен таймаут/сеть/API)\n", name)
+			pr.Warnf("Предупреждение: от %s не получено ни одного стакана\n", name)
 			continue
 		}
 		pr.Infof("Успешно получено стаканов: %d\n", len(res.obs))
 		if ob, ok := res.obs[symbol]; ok && ob != nil {
-			// устаревание
+			// проверка на устаревание
 			var t time.Time
 			if ob.Timestamp > 1e12 {
 				t = time.UnixMilli(ob.Timestamp)
@@ -135,14 +171,22 @@ func runCore(
 	// Контекст сделки
 	fmt.Println("\n=== Контекст сделки ===")
 	if dir == scenario.Sell {
-		fmt.Printf("Инструмент: %s  | Объём: %.8f %s  | Глубина: %d\n", symbol, params.LeftCoinVolume, left, cfg.Limit)
+		fmt.Printf("Инструмент: %s  | Объём: %.8f %s  | Глубина: %d\n",
+			symbol, params.LeftCoinVolume, left, cfg.Limit)
 	} else {
-		fmt.Printf("Инструмент: %s  | Сумма: %.2f USDT  | Глубина: %d\n", symbol, params.LeftCoinVolume, cfg.Limit)
+		fmt.Printf("Инструмент: %s  | Сумма: %.2f USDT  | Глубина: %d\n",
+			symbol, params.LeftCoinVolume, cfg.Limit)
 	}
 
-	fees := map[string]scenario.FeeConfig{
-		"Binance": {FeePct: 0.001, MinQty: 0, MinNotional: 10},
-		"Bybit":   {FeePct: 0.001, MinQty: 0, MinNotional: 10},
+	// Конфигурация комиссий — пример сочетания относительных и абсолютных
+	feeModels := map[string]fees.Fee{
+		"Binance": fees.NewRelative(0.001), // 0.1%
+		"Bybit":   fees.NewRelative(0.001),
+		"OKX":     fees.NewAbsolute(1.0), // фикс 1 USDT
+		"KuCoin":  fees.NewRelative(0.001),
+		"Bitget":  fees.NewRelative(0.001),
+		"HTX":     fees.NewRelative(0.001),
+		"Gate":    fees.NewRelative(0.001),
 	}
 
 	in := scenario.Inputs{
@@ -151,9 +195,9 @@ func runCore(
 		Right:      right,
 		Amount:     params.LeftCoinVolume,
 		OrderBooks: allByEx,
-		Fees:       fees,
+		Fees:       feeModels,
 		Now:        now,
-		MaxStale:   maxStale,
+		MaxStale:   10 * time.Second,
 	}
 
 	// Запуск стратегий
@@ -177,14 +221,16 @@ func runCore(
 			pr.ShowSellTotals(st.Name(), right, res)
 		}
 
-		// После сценария #1 показываем "что будет, если вложить всё на биржу X/Y"
-		if idx == 0 { // сценарий #1 в списке
-			evals := buildScenario1Evals(in, fees, allByEx)
-			pr.ShowScenario1Rationale(res.Asset, dir, evals)
+		// После сценария #1 — обоснование "вложить всё на одну биржу", если презентер это поддерживает
+		if idx == 0 {
+			if s1r, ok := pr.(scenario1Rationale); ok {
+				evals := buildScenario1Evals(in, feeModels, allByEx)
+				s1r.ShowScenario1Rationale(res.Asset, dir, evals)
+			}
 		}
 	}
 
-	// Финальное сравнение
+	// Итоговое сравнение
 	if dir == scenario.Buy {
 		rows, best := buildBuyComparison(resultsSnaps, right)
 		pr.ShowBuyComparison(best, right, rows)
@@ -195,8 +241,8 @@ func runCore(
 	return nil
 }
 
-// Собираем “оценку одной биржи на весь объём” для сценария #1
-func buildScenario1Evals(in scenario.Inputs, fees map[string]scenario.FeeConfig, books map[string]*domain.OrderBook) []scenario.ExchangeEval {
+// buildScenario1Evals — считаем эффективность "вложить всё на одну биржу".
+func buildScenario1Evals(in scenario.Inputs, feeModels map[string]fees.Fee, books map[string]*domain.OrderBook) []scenario.ExchangeEval {
 	out := make([]scenario.ExchangeEval, 0, len(books))
 	switch in.Direction {
 	case scenario.Buy:
@@ -204,23 +250,18 @@ func buildScenario1Evals(in scenario.Inputs, fees map[string]scenario.FeeConfig,
 			if ob == nil || len(ob.Asks) == 0 {
 				continue
 			}
-			fee := fees[ex].FeePct
-			qty, avg, spent := orderbook.BuyQtyFromAsksWithFee(ob.Asks, in.Amount, fee)
+			f := feeModels[ex]
+			qty, avg, spentNet, fee := orderbook.BuyQtyFromAsksWithFee(ob.Asks, in.Amount, f)
 			if qty <= 0 {
-				out = append(out, scenario.ExchangeEval{Exchange: ex})
 				continue
 			}
-			comm := spent * fee / (1 + fee)
-			cov := 0.0
-			if in.Amount > 0 {
-				cov = (spent / in.Amount) * 100.0
-			}
+			cov := percent(spentNet, in.Amount)
 			out = append(out, scenario.ExchangeEval{
 				Exchange:   ex,
 				AvgPrice:   avg,
 				Qty:        qty,
-				AmountUSDT: spent,
-				Commission: comm,
+				AmountUSDT: spentNet,
+				Commission: fee,
 				Coverage:   cov,
 			})
 		}
@@ -229,24 +270,23 @@ func buildScenario1Evals(in scenario.Inputs, fees map[string]scenario.FeeConfig,
 			if ob == nil || len(ob.Bids) == 0 {
 				continue
 			}
-			fee := fees[ex].FeePct
-			usdt, avg := orderbook.SellFromBidsWithFee(ob.Bids, in.Amount, fee)
-			if usdt <= 0 || avg <= 0 {
-				out = append(out, scenario.ExchangeEval{Exchange: ex})
+			f := feeModels[ex]
+			receivedNet, avg, fee := orderbook.SellFromBidsWithFee(ob.Bids, in.Amount, f)
+			if receivedNet <= 0 || avg <= 0 {
 				continue
 			}
-			soldQty := usdt / avg
-			comm := usdt * fee / (1 - fee)
-			cov := 0.0
-			if in.Amount > 0 {
-				cov = (soldQty / in.Amount) * 100.0
+			// оценим фактически реализованное количество
+			soldQty := 0.0
+			if avg > 0 {
+				soldQty = receivedNet / avg
 			}
+			cov := percent(soldQty, in.Amount)
 			out = append(out, scenario.ExchangeEval{
 				Exchange:   ex,
 				AvgPrice:   avg,
 				Qty:        soldQty,
-				AmountUSDT: usdt,
-				Commission: comm,
+				AmountUSDT: receivedNet,
+				Commission: fee,
 				Coverage:   cov,
 			})
 		}
@@ -254,7 +294,7 @@ func buildScenario1Evals(in scenario.Inputs, fees map[string]scenario.FeeConfig,
 	return out
 }
 
-// ===== сравнения (как у тебя, но с человекочитаемыми формулировками) =====
+// ===== сравнения (BUY/SELL) =====
 
 func buildBuyComparison(results []snap, _ string) (rows []string, bestName string) {
 	valid := make([]snap, 0, len(results))
@@ -275,6 +315,7 @@ func buildBuyComparison(results []snap, _ string) (rows []string, bestName strin
 	}
 	bestName = best.name
 	asset := best.res.Asset
+
 	rows = append(rows, fmt.Sprintf("Лучший по количеству: %s — %.8f %s (средняя цена за 1 %s = %.8f USDT)",
 		best.name, best.res.TotalQty, asset, asset, best.res.AveragePrice))
 	for _, s := range valid {
@@ -282,9 +323,11 @@ func buildBuyComparison(results []snap, _ string) (rows []string, bestName strin
 			continue
 		}
 		diff := best.res.TotalQty - s.res.TotalQty
-		pct := (diff / s.res.TotalQty) * 100
+		pct := percent(diff, s.res.TotalQty)
 		rows = append(rows, fmt.Sprintf("  Преимущество над %s: +%.8f %s (≈ %.4f%%)", s.name, diff, asset, pct))
 	}
+
+	// Лучшая средняя цена
 	bestPrice := valid[0]
 	for _, s := range valid[1:] {
 		if s.res.AveragePrice > 0 && s.res.AveragePrice < bestPrice.res.AveragePrice {
@@ -317,6 +360,7 @@ func buildSellComparison(results []snap, _ string) (rows []string, bestName stri
 	}
 	bestName = best.name
 	asset := best.res.Asset
+
 	rows = append(rows, fmt.Sprintf("Лучшая выручка: %s — %.2f USDT (средняя цена продажи 1 %s = %.8f USDT)",
 		best.name, best.res.TotalUSDT, asset, best.res.AveragePrice))
 	for _, s := range valid {
@@ -324,9 +368,11 @@ func buildSellComparison(results []snap, _ string) (rows []string, bestName stri
 			continue
 		}
 		diff := best.res.TotalUSDT - s.res.TotalUSDT
-		pct := (diff / s.res.TotalUSDT) * 100.0
+		pct := percent(diff, s.res.TotalUSDT)
 		rows = append(rows, fmt.Sprintf("  Преимущество над %s: +%.2f USDT (≈ %.4f%%)", s.name, diff, pct))
 	}
+
+	// Лучшая средняя цена продажи
 	bestPrice := valid[0]
 	for _, s := range valid[1:] {
 		if s.res.AveragePrice > bestPrice.res.AveragePrice {
@@ -338,4 +384,13 @@ func buildSellComparison(results []snap, _ string) (rows []string, bestName stri
 			bestPrice.name, bestPrice.res.AveragePrice, bestPrice.res.Asset))
 	}
 	return rows, bestName
+}
+
+// ===== утилиты =====
+
+func percent(a, b float64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return (a / b) * 100.0
 }
