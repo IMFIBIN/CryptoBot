@@ -12,33 +12,47 @@
     <div id="health" class="muted">Проверка сервера…</div>
 </header>
 
-
 <main>
     <form id="plan-form">
-        <div class="row"><label>Покупаем (Base)</label><input id="base" value="BNB" /></div>
-        <div class="row"><label>Платим (Quote)</label><input id="quote" value="USDT" /></div>
-        <div class="row"><label>Сумма</label><input id="amount" type="number" step="0.0001" value="100" /></div>
-        <div class="row"><label>Глубина стакана</label><input id="depth" type="number" value="100" /></div>
-        <div class="row"><label>Сценарий</label>
+        <div class="row">
+            <label>Покупаем (Base)</label>
+            <select id="base"></select>
+        </div>
+
+        <div class="row">
+            <label>Платим (Quote)</label>
+            <select id="quote"></select>
+        </div>
+
+        <div class="row">
+            <label>Сумма</label>
+            <input id="amount" type="number" step="0.0001" value="100" />
+        </div>
+
+        <div class="row">
+            <label>Глубина стакана</label>
+            <input id="depth" type="number" value="100" />
+        </div>
+
+        <div class="row">
+            <label>Сценарий</label>
             <select id="scenario">
                 <option value="best_single">Лучшая биржа</option>
                 <option value="equal_split">Равный сплит</option>
                 <option value="optimal">Оптимальный</option>
             </select>
         </div>
-        <button type="submit">Рассчитать план</button>
-    </form>
 
+        <button id="calc-btn" type="submit">Рассчитать план</button>
+    </form>
 
     <section id="result" class="card hidden"></section>
     <section id="legs" class="card hidden"></section>
 </main>
 
-
 <footer>
     <span class="muted">Локальный сервер на :8080. Время: <span id="now"></span></span>
 </footer>
-
 
 <script src="app.js"></script>
 </body>
