@@ -1,58 +1,56 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CryptoBot — локальный тест</title>
+    <title>CryptoBot — local test</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 <header>
-    <h1>CryptoBot — тест сценариев</h1>
-    <div id="health" class="muted">Проверка сервера…</div>
+    <h1>CryptoBot — Scenarios Test</h1>
+    <div id="health" class="muted">Checking server…</div>
 </header>
 
 <main>
     <form id="plan-form">
         <div class="row">
-            <label>Покупаем (Base)</label>
+            <label>Buy</label>
             <select id="base"></select>
         </div>
 
         <div class="row">
-            <label>Платим (Quote)</label>
-            <select id="quote"></select>
+            <label>Pay</label>
+            <!-- фиксированный USDT, без стрелки -->
+            <input id="quote" value="USDT" readonly class="readonly-input" />
         </div>
 
         <div class="row">
-            <label>Сумма</label>
-            <input id="amount" type="number" step="0.0001" value="100" />
+            <label>Spend (USDT)</label>
+            <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
         </div>
 
         <div class="row">
-            <label>Глубина стакана</label>
+            <label>Orderbook depth</label>
             <input id="depth" type="number" value="100" />
         </div>
 
         <div class="row">
-            <label>Сценарий</label>
+            <label>Scenario</label>
             <select id="scenario">
-                <option value="best_single">Лучшая биржа</option>
-                <option value="equal_split">Равный сплит</option>
-                <option value="optimal">Оптимальный</option>
+                <option value="best_single">Best single</option>
+                <option value="equal_split">Equal split</option>
+                <option value="optimal" selected>Optimal</option>
             </select>
         </div>
 
-        <button id="calc-btn" type="submit">Рассчитать план</button>
+        <button id="calc-btn" type="submit">Calculate</button>
     </form>
+
 
     <section id="result" class="card hidden"></section>
     <section id="legs" class="card hidden"></section>
 </main>
-
-<footer>
-    <span class="muted">Локальный сервер на :8080. Время: <span id="now"></span></span>
-</footer>
 
 <script src="app.js"></script>
 </body>

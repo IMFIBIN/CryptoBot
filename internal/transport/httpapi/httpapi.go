@@ -32,9 +32,9 @@ func (s *Server) routes() http.Handler {
 	// API
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/plan", s.handlePlan)
-	mux.HandleFunc("/api/symbols", s.handleSymbols) // ← добавили сюда
+	mux.HandleFunc("/api/symbols", s.handleSymbols) // только USDT как quote
 
-	// Статика
+	// static
 	sub, err := fs.Sub(embeddedFS, "webui")
 	if err != nil {
 		log.Printf("embed sub error: %v", err)
@@ -44,14 +44,6 @@ func (s *Server) routes() http.Handler {
 	}
 
 	return withCORS(mux)
-}
-
-func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(SymbolsResponse{
-		Bases:  []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"},
-		Quotes: []string{"USDT", "USDC", "BTC"},
-	})
 }
 
 func (s *Server) Start() error {
@@ -89,11 +81,38 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "invalid JSON: " + err.Error()})
 		return
 	}
+	// нормализация в верхний регистр
+	req.Base = strings.ToUpper(strings.TrimSpace(req.Base))
+	req.Quote = strings.ToUpper(strings.TrimSpace(req.Quote))
+
+	// обязательные поля
 	if req.Base == "" || req.Quote == "" || req.Amount <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "missing fields: base, quote, amount"})
 		return
 	}
+
+	// БИЗНЕС-ПРАВИЛА:
+	// 1) работаем только с USDT как валюта оплаты
+	if req.Quote != "USDT" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Поддерживается только оплата в USDT"})
+		return
+	}
+	// 2) Base не может быть USDT
+	if req.Base == "USDT" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Base не должен быть USDT при оплате USDT"})
+		return
+	}
+	// 3) Base и Quote не совпадают
+	if req.Base == req.Quote {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Base и Quote не должны совпадать"})
+		return
+	}
+
+	// дефолты
 	if req.Depth <= 0 {
 		req.Depth = 100
 	}
@@ -115,6 +134,15 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+// только USDT как quote; base-список без USDT
+func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(SymbolsResponse{
+		Bases:  []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"},
+		Quotes: []string{"USDT"},
+	})
 }
 
 func withCORS(next http.Handler) http.Handler {

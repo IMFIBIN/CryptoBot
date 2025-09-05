@@ -23,3 +23,21 @@ table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #1b2634; padding: 8px; text-align: left; }
 th { color: #a7bed3; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; }
+table.data { table-layout: fixed; }
+.col-exchange { width: 40%; }
+.col-num { width: 20%; }
+th, td { border-bottom: 1px solid #1b2634; padding: 8px; text-align: left; }
+th { color: #a7bed3; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.readonly-input {
+    background: #0b1220;
+    color: #e6eef8;
+    border: 1px solid #1b2634;
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: default;
+}
+.readonly-input:read-only { opacity: 0.9; }
+tr.best-row   { background: rgba(16, 185, 129, .12); }  /* зелёный */
+tr.worst-row  { background: rgba(239, 68, 68,  .12); }  /* красный  */

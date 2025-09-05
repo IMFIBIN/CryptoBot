@@ -23,6 +23,7 @@ type PlanResponse struct {
 	VWAP        float64   `json:"vwap"`
 	TotalCost   float64   `json:"totalCost"`
 	TotalFees   float64   `json:"totalFees"`
+	Unspent     float64   `json:"unspent"`
 	Legs        []PlanLeg `json:"legs"`
 	GeneratedAt string    `json:"generatedAt"`
 }
