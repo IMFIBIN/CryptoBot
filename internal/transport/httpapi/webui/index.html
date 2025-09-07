@@ -22,19 +22,16 @@
     <form id="plan-form">
         <div class="row">
             <label for="base" data-i18n="buy">Buy</label>
-            <select id="base">
-                <!-- будет заполнено из app.js /api/symbols -->
-            </select>
+            <select id="base"></select>
         </div>
 
         <div class="row">
-            <label for="quote" data-i18n="pay">Pay</label>
-            <!-- фиксированный USDT, без стрелки -->
-            <input id="quote" value="USDT" readonly class="readonly-input" />
+            <label for="pay" data-i18n="pay">Pay</label>
+            <select id="pay"></select>
         </div>
 
         <div class="row">
-            <label for="amount" data-i18n="spend">Spend (USDT)</label>
+            <label for="amount" data-i18n="spend">Spend</label>
             <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
         </div>
 

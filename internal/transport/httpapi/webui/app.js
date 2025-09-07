@@ -3,7 +3,7 @@ const I18N = {
     en: {
         buy: 'Buy',
         pay: 'Pay',
-        spend: 'Spend (USDT)',
+        spend: 'Spend',
         depth: 'Orderbook depth',
         scenario: 'Scenario',
         calculate: 'Calculate',
@@ -17,6 +17,24 @@ const I18N = {
         serverFail: 'Server is not responding',
         resultTitle: 'Plan result',
         legsTitle: 'Execution legs',
+
+        // result card field labels
+        fBase: 'Base',
+        fQuote: 'Quote',
+        fAmount: 'Amount',
+        fScenario: 'Scenario',
+        fVWAP: 'VWAP',
+        fTotalCost: 'Total cost',
+        fTotalFees: 'Total fees',
+        fUnspent: 'Unspent',
+        fGenerated: 'Generated',
+
+        // table headers
+        thExchange: 'Exchange',
+        thAmount: 'Amount',
+        thPrice: 'Price',
+        thFee: 'Fee',
+
         errBadAmount: 'Enter a valid amount',
         errBadDepth: 'Enter a valid depth',
         errRequest: 'Request failed',
@@ -24,7 +42,7 @@ const I18N = {
     ru: {
         buy: 'Купить',
         pay: 'Платить',
-        spend: 'Потратить (USDT)',
+        spend: 'Потратить',
         depth: 'Глубина стакана',
         scenario: 'Сценарий',
         calculate: 'Рассчитать',
@@ -38,11 +56,31 @@ const I18N = {
         serverFail: 'Сервер не отвечает',
         resultTitle: 'Результат плана',
         legsTitle: 'Ноги исполнения',
+
+        // result card field labels
+        fBase: 'Базовая',
+        fQuote: 'Котируемая',
+        fAmount: 'Сумма',
+        fScenario: 'Сценарий',
+        fVWAP: 'Средняя цена (VWAP)',
+        fTotalCost: 'Итого потрачено',
+        fTotalFees: 'Комиссии',
+        fUnspent: 'Остаток',
+        fGenerated: 'Сгенерировано',
+
+        // table headers
+        thExchange: 'Биржа',
+        thAmount: 'Количество',
+        thPrice: 'Цена',
+        thFee: 'Комиссия',
+
         errBadAmount: 'Введите корректную сумму',
         errBadDepth: 'Введите корректную глубину',
         errRequest: 'Ошибка запроса',
     }
 };
+
+let lastResponse = null; // для перерисовки после смены языка
 
 function getSavedLang() {
     const ls = localStorage.getItem('lang');
@@ -54,13 +92,11 @@ function setLang(lang) {
     const dict = I18N[lang] || I18N.en;
     document.documentElement.lang = lang;
 
-    // статические подписи по data-i18n
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         if (dict[key]) el.textContent = dict[key];
     });
 
-    // подписи опций сценариев (value не меняем!)
     const sel = document.getElementById('scenario');
     if (sel) {
         [...sel.options].forEach(o => {
@@ -69,14 +105,17 @@ function setLang(lang) {
         });
     }
 
-    // кнопка языка
     const btn = document.getElementById('langBtn');
     if (btn) btn.textContent = (lang === 'en') ? 'RU' : 'EN';
 
-    // подпись статуса сервера если ещё не перезаписана
     const health = document.getElementById('health');
     if (health && (health.dataset.state === 'checking')) {
         health.textContent = dict.checkingServer;
+    }
+
+    // Перерисовать уже полученный результат на новом языке
+    if (lastResponse) {
+        renderResult(lastResponse);
     }
 
     localStorage.setItem('lang', lang);
@@ -88,24 +127,27 @@ function toggleLang() {
 }
 
 // === утилиты ===
-const $ = (sel) => document.querySelector(sel);
 const byId = (id) => document.getElementById(id);
+
+function currentLocale() {
+    const l = document.documentElement.lang || 'en';
+    return l === 'ru' ? 'ru-RU' : 'en-US';
+}
 
 function parseNumber(str) {
     if (typeof str !== 'string') return NaN;
-    // поддержим "1 000 000" и "1,000,000.5" и "1 000 000,5"
     const s = str.replace(/\s+/g, '').replace(/,/g, '.');
     return Number(s);
 }
 
 function fmt2(x) {
     if (!isFinite(x)) return '—';
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(x);
+    return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 2 }).format(x);
 }
 
 function fmt8(x) {
     if (!isFinite(x)) return '—';
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(x);
+    return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 8 }).format(x);
 }
 
 async function apiGet(url) {
@@ -147,13 +189,22 @@ async function checkHealth() {
     }
 }
 
+function fillSelectWithCoins(select, coins) {
+    select.innerHTML = '';
+    for (const s of coins) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        select.appendChild(opt);
+    }
+}
+
 async function loadSymbols() {
     const baseSel = byId('base');
+    const paySel = byId('pay');
 
     try {
         const data = await apiGet('/api/symbols');
-        // поддержим разные формы ответа:
-        // { bases: [...] } | { base: [...] } | { symbols: [...] } | [...]
         let bases = [];
         if (Array.isArray(data)) bases = data;
         else if (Array.isArray(data.bases)) bases = data.bases;
@@ -161,29 +212,28 @@ async function loadSymbols() {
         else if (Array.isArray(data.symbols)) bases = data.symbols;
 
         if (!bases || bases.length === 0) {
-            bases = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']; // запасной вариант
+            bases = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']; // fallback
         }
 
-        baseSel.innerHTML = '';
-        for (const s of bases) {
-            const opt = document.createElement('option');
-            opt.value = s;
-            opt.textContent = s;
-            baseSel.appendChild(opt);
-        }
+        const coins = Array.from(new Set(['USDT', ...bases])); // добавим USDT всегда
+        fillSelectWithCoins(baseSel, coins);
+        fillSelectWithCoins(paySel, coins);
+
+        // по умолчанию: покупаем BTC за USDT
+        baseSel.value = 'BTC';
+        paySel.value = 'USDT';
     } catch (e) {
-        // в крайнем случае — статический набор
-        baseSel.innerHTML = '';
-        ['BTC', 'ETH', 'BNB', 'ADA', 'SOL'].forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = opt.textContent = s;
-            baseSel.appendChild(opt);
-        });
+        const coins = ['USDT', 'BTC', 'ETH', 'BNB', 'ADA', 'SOL'];
+        fillSelectWithCoins(baseSel, coins);
+        fillSelectWithCoins(paySel, coins);
+        baseSel.value = 'BTC';
+        paySel.value = 'USDT';
     }
 }
 
 function renderResult(resp) {
-    // ВАЖНО: бэкенд отдаёт lowerCamelCase / kebab? — тут используем нижний регистр:
+    lastResponse = resp; // запомним для смены языка
+
     const result = byId('result');
     const legs = byId('legs');
     const dict = I18N[document.documentElement.lang] || I18N.en;
@@ -196,15 +246,15 @@ function renderResult(resp) {
     result.innerHTML = `
     <h2>${dict.resultTitle}</h2>
     <div class="kv">
-      <div><span>Base</span><b>${resp.base}</b></div>
-      <div><span>Quote</span><b>${resp.quote}</b></div>
-      <div><span>Amount</span><b>${fmt2(resp.amount)}</b></div>
-      <div><span>Scenario</span><b>${scenarioLabel}</b></div>
-      <div><span>VWAP</span><b>${fmt8(resp.vwap)}</b></div>
-      <div><span>Total cost</span><b>${fmt2(resp.totalCost)}</b></div>
-      <div><span>Total fees</span><b>${fmt2(resp.totalFees)}</b></div>
-      <div><span>Unspent</span><b>${fmt2(resp.unspent)}</b></div>
-      <div><span>Generated</span><b>${resp.generatedAt || ''}</b></div>
+      <div><span>${dict.fBase}</span><b>${resp.base}</b></div>
+      <div><span>${dict.fQuote}</span><b>${resp.quote}</b></div>
+      <div><span>${dict.fAmount}</span><b>${fmt2(resp.amount)}</b></div>
+      <div><span>${dict.fScenario}</span><b>${scenarioLabel}</b></div>
+      <div><span>${dict.fVWAP}</span><b>${fmt8(resp.vwap)}</b></div>
+      <div><span>${dict.fTotalCost}</span><b>${fmt2(resp.totalCost)}</b></div>
+      <div><span>${dict.fTotalFees}</span><b>${fmt2(resp.totalFees)}</b></div>
+      <div><span>${dict.fUnspent}</span><b>${fmt2(resp.unspent)}</b></div>
+      <div><span>${dict.fGenerated}</span><b>${resp.generatedAt || ''}</b></div>
     </div>
   `;
 
@@ -223,10 +273,10 @@ function renderResult(resp) {
       <table class="table">
         <thead>
           <tr>
-            <th>Exchange</th>
-            <th>Amount</th>
-            <th>Price</th>
-            <th>Fee</th>
+            <th>${dict.thExchange}</th>
+            <th>${dict.thAmount}</th>
+            <th>${dict.thPrice}</th>
+            <th>${dict.thFee}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -236,6 +286,8 @@ function renderResult(resp) {
 }
 
 function showError(err) {
+    lastResponse = null;
+
     const result = byId('result');
     const legs = byId('legs');
     const dict = I18N[document.documentElement.lang] || I18N.en;
@@ -253,8 +305,8 @@ async function onSubmit(e) {
     e.preventDefault();
     const dict = I18N[document.documentElement.lang] || I18N.en;
 
-    const base = byId('base').value || 'BTC';
-    const quote = 'USDT';
+    const buy = byId('base').value; // что хотим получить
+    const pay = byId('pay').value;  // чем платим
     const amount = parseNumber(byId('amount').value);
     const depth = parseInt(byId('depth').value, 10);
     const scenario = byId('scenario').value;
@@ -267,11 +319,17 @@ async function onSubmit(e) {
         alert(dict.errBadDepth);
         return;
     }
+    if (buy === pay) {
+        alert('Buy and Pay must be different');
+        return;
+    }
+
+    // Всегда шлём как есть: base=Buy, quote=Pay, amount — в единицах Pay
+    const payload = { base: buy, quote: pay, amount, depth, scenario };
 
     byId('calc-btn').disabled = true;
 
     try {
-        const payload = { base, quote, amount, depth, scenario };
         const resp = await apiPost('/api/plan', payload);
         renderResult(resp);
     } catch (err) {
@@ -283,15 +341,12 @@ async function onSubmit(e) {
 
 // === bootstrap ===
 document.addEventListener('DOMContentLoaded', () => {
-    // язык
     setLang(getSavedLang());
     const btn = byId('langBtn');
     if (btn) btn.addEventListener('click', toggleLang);
 
-    // данные
     checkHealth();
     loadSymbols();
 
-    // форма
     byId('plan-form').addEventListener('submit', onSubmit);
 });
