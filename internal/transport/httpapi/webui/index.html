@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+
+<!-- Переключатель языка -->
+<div class="topbar">
+    <button id="langBtn" class="lang-btn" aria-label="Switch language">RU</button>
+</div>
+
 <header>
     <h1>CryptoBot — Scenarios Test</h1>
     <div id="health" class="muted">Checking server…</div>
@@ -15,38 +21,39 @@
 <main>
     <form id="plan-form">
         <div class="row">
-            <label>Buy</label>
-            <select id="base"></select>
+            <label for="base" data-i18n="buy">Buy</label>
+            <select id="base">
+                <!-- будет заполнено из app.js /api/symbols -->
+            </select>
         </div>
 
         <div class="row">
-            <label>Pay</label>
+            <label for="quote" data-i18n="pay">Pay</label>
             <!-- фиксированный USDT, без стрелки -->
             <input id="quote" value="USDT" readonly class="readonly-input" />
         </div>
 
         <div class="row">
-            <label>Spend (USDT)</label>
+            <label for="amount" data-i18n="spend">Spend (USDT)</label>
             <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
         </div>
 
         <div class="row">
-            <label>Orderbook depth</label>
-            <input id="depth" type="number" value="100" />
+            <label for="depth" data-i18n="depth">Orderbook depth</label>
+            <input id="depth" type="text" inputmode="numeric" pattern="[0-9]*" value="100" />
         </div>
 
         <div class="row">
-            <label>Scenario</label>
+            <label for="scenario" data-i18n="scenario">Scenario</label>
             <select id="scenario">
+                <option value="optimal">Optimal</option>
                 <option value="best_single">Best single</option>
                 <option value="equal_split">Equal split</option>
-                <option value="optimal" selected>Optimal</option>
             </select>
         </div>
 
-        <button id="calc-btn" type="submit">Calculate</button>
+        <button id="calc-btn" type="submit" data-i18n="calculate">Calculate</button>
     </form>
-
 
     <section id="result" class="card hidden"></section>
     <section id="legs" class="card hidden"></section>

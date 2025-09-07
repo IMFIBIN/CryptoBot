@@ -1,155 +1,297 @@
-const $ = (id) => document.getElementById(id);
+// === i18n (EN/RU) ===
+const I18N = {
+    en: {
+        buy: 'Buy',
+        pay: 'Pay',
+        spend: 'Spend (USDT)',
+        depth: 'Orderbook depth',
+        scenario: 'Scenario',
+        calculate: 'Calculate',
+        scenarioOptions: {
+            best_single: 'Best single',
+            equal_split: 'Equal split',
+            optimal: 'Optimal',
+        },
+        checkingServer: 'Checking server…',
+        serverOK: 'Server is up',
+        serverFail: 'Server is not responding',
+        resultTitle: 'Plan result',
+        legsTitle: 'Execution legs',
+        errBadAmount: 'Enter a valid amount',
+        errBadDepth: 'Enter a valid depth',
+        errRequest: 'Request failed',
+    },
+    ru: {
+        buy: 'Купить',
+        pay: 'Платить',
+        spend: 'Потратить (USDT)',
+        depth: 'Глубина стакана',
+        scenario: 'Сценарий',
+        calculate: 'Рассчитать',
+        scenarioOptions: {
+            best_single: 'Лучшая одна биржа',
+            equal_split: 'Равные доли',
+            optimal: 'Оптимально',
+        },
+        checkingServer: 'Проверяем сервер…',
+        serverOK: 'Сервер работает',
+        serverFail: 'Сервер не отвечает',
+        resultTitle: 'Результат плана',
+        legsTitle: 'Ноги исполнения',
+        errBadAmount: 'Введите корректную сумму',
+        errBadDepth: 'Введите корректную глубину',
+        errRequest: 'Ошибка запроса',
+    }
+};
 
-const scenarioTitle = (code) => ({
-    best_single: 'Best single',
-    equal_split: 'Equal split',
-    optimal:     'Optimal',
-}[code] || code);
+function getSavedLang() {
+    const ls = localStorage.getItem('lang');
+    if (ls === 'ru' || ls === 'en') return ls;
+    return (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+}
 
-const moneyUSDT = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qtyBASE   = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
-const priceUSDT = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function setLang(lang) {
+    const dict = I18N[lang] || I18N.en;
+    document.documentElement.lang = lang;
 
+    // статические подписи по data-i18n
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (dict[key]) el.textContent = dict[key];
+    });
+
+    // подписи опций сценариев (value не меняем!)
+    const sel = document.getElementById('scenario');
+    if (sel) {
+        [...sel.options].forEach(o => {
+            const v = o.value;
+            if (dict.scenarioOptions[v]) o.textContent = dict.scenarioOptions[v];
+        });
+    }
+
+    // кнопка языка
+    const btn = document.getElementById('langBtn');
+    if (btn) btn.textContent = (lang === 'en') ? 'RU' : 'EN';
+
+    // подпись статуса сервера если ещё не перезаписана
+    const health = document.getElementById('health');
+    if (health && (health.dataset.state === 'checking')) {
+        health.textContent = dict.checkingServer;
+    }
+
+    localStorage.setItem('lang', lang);
+}
+
+function toggleLang() {
+    const cur = document.documentElement.lang || getSavedLang();
+    setLang(cur === 'ru' ? 'en' : 'ru');
+}
+
+// === утилиты ===
+const $ = (sel) => document.querySelector(sel);
+const byId = (id) => document.getElementById(id);
+
+function parseNumber(str) {
+    if (typeof str !== 'string') return NaN;
+    // поддержим "1 000 000" и "1,000,000.5" и "1 000 000,5"
+    const s = str.replace(/\s+/g, '').replace(/,/g, '.');
+    return Number(s);
+}
+
+function fmt2(x) {
+    if (!isFinite(x)) return '—';
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(x);
+}
+
+function fmt8(x) {
+    if (!isFinite(x)) return '—';
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(x);
+}
+
+async function apiGet(url) {
+    const r = await fetch(url, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+}
+
+async function apiPost(url, body) {
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`HTTP ${r.status} ${text}`);
+    }
+    return r.json();
+}
+
+// === логика страницы ===
 async function checkHealth() {
+    const health = byId('health');
+    const dict = I18N[document.documentElement.lang] || I18N.en;
+    health.dataset.state = 'checking';
+    health.textContent = dict.checkingServer;
+
     try {
-        const r = await fetch('/api/health', { cache: 'no-store' });
-        const j = await r.json();
-        $('health').textContent = j.status === 'ok' ? 'Server: OK' : 'Server: error';
-    } catch { $('health').textContent = 'Server unreachable'; }
+        await apiGet('/api/health');
+        health.textContent = dict.serverOK;
+        health.classList.remove('bad');
+    } catch (e) {
+        health.textContent = dict.serverFail;
+        health.classList.add('bad');
+    } finally {
+        delete health.dataset.state;
+    }
 }
 
 async function loadSymbols() {
+    const baseSel = byId('base');
+
     try {
-        const r = await fetch('/api/symbols', { cache: 'no-store' });
-        const j = await r.json();
-        fillSelect($('base'), j.bases, 'BTC');
-    } catch {
-        fillSelect($('base'), ['BTC','ETH','SOL'], 'BTC');
+        const data = await apiGet('/api/symbols');
+        // поддержим разные формы ответа:
+        // { bases: [...] } | { base: [...] } | { symbols: [...] } | [...]
+        let bases = [];
+        if (Array.isArray(data)) bases = data;
+        else if (Array.isArray(data.bases)) bases = data.bases;
+        else if (Array.isArray(data.base)) bases = data.base;
+        else if (Array.isArray(data.symbols)) bases = data.symbols;
+
+        if (!bases || bases.length === 0) {
+            bases = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']; // запасной вариант
+        }
+
+        baseSel.innerHTML = '';
+        for (const s of bases) {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = s;
+            baseSel.appendChild(opt);
+        }
+    } catch (e) {
+        // в крайнем случае — статический набор
+        baseSel.innerHTML = '';
+        ['BTC', 'ETH', 'BNB', 'ADA', 'SOL'].forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = s;
+            baseSel.appendChild(opt);
+        });
     }
 }
 
-function fillSelect(sel, items, def) {
-    sel.innerHTML = items.map(x => `<option value="${x}">${x}</option>`).join('');
-    if (def && items.includes(def)) sel.value = def;
-}
+function renderResult(resp) {
+    // ВАЖНО: бэкенд отдаёт lowerCamelCase / kebab? — тут используем нижний регистр:
+    const result = byId('result');
+    const legs = byId('legs');
+    const dict = I18N[document.documentElement.lang] || I18N.en;
 
-checkHealth(); loadSymbols();
+    result.classList.remove('hidden');
+    legs.classList.remove('hidden');
 
-// ---- Spend only integers ----
-const toIntDollars = (x) => {
-    const digits = String(x).replace(/\D+/g, '');
-    const n = digits === '' ? 0 : parseInt(digits, 10);
-    return Math.max(1, n);
-};
-$('amount').addEventListener('input', () => {
-    $('amount').value = String(toIntDollars($('amount').value));
-});
+    const scenarioLabel = dict.scenarioOptions[resp.scenario] || resp.scenario;
 
-// helpers
-const sumAmount = (legs) => legs.reduce((s, l) => s + Number(l.amount || 0), 0);
+    result.innerHTML = `
+    <h2>${dict.resultTitle}</h2>
+    <div class="kv">
+      <div><span>Base</span><b>${resp.base}</b></div>
+      <div><span>Quote</span><b>${resp.quote}</b></div>
+      <div><span>Amount</span><b>${fmt2(resp.amount)}</b></div>
+      <div><span>Scenario</span><b>${scenarioLabel}</b></div>
+      <div><span>VWAP</span><b>${fmt8(resp.vwap)}</b></div>
+      <div><span>Total cost</span><b>${fmt2(resp.totalCost)}</b></div>
+      <div><span>Total fees</span><b>${fmt2(resp.totalFees)}</b></div>
+      <div><span>Unspent</span><b>${fmt2(resp.unspent)}</b></div>
+      <div><span>Generated</span><b>${resp.generatedAt || ''}</b></div>
+    </div>
+  `;
 
-$('plan-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
+    const rows = (resp.legs || []).map(l => `
+    <tr>
+      <td>${l.exchange}</td>
+      <td class="num">${fmt8(l.amount)}</td>
+      <td class="num">${fmt8(l.price)}</td>
+      <td class="num">${fmt2(l.fee)}</td>
+    </tr>
+  `).join('');
 
-    if ($('base').value === 'USDT') { alert('Base must differ from USDT'); return; }
-
-    const amount = toIntDollars($('amount').value);
-    $('amount').value = String(amount);
-
-    const res  = $('result');
-    const legs = $('legs');
-    res.classList.remove('hidden'); res.innerHTML = '<h2>Calculating…</h2>';
-    legs.classList.add('hidden');   legs.innerHTML = '';
-
-    const btn = $('calc-btn'); btn.disabled = true;
-
-    const payload = {
-        base: $('base').value,
-        quote: 'USDT',
-        amount: amount,
-        depth: parseInt($('depth').value, 10),
-        scenario: $('scenario').value,
-    };
-
-    try {
-        const r = await fetch('/api/plan', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-            body: JSON.stringify(payload)
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || 'API error');
-
-        const gotBase = sumAmount(j.legs);
-        const totalPay = Number(j.amount) + Number(j.totalFees);
-
-        res.innerHTML = `
-      <h2>Summary</h2>
-      <div class="grid">
-        <div><b>Pair:</b> ${j.base}/${j.quote}</div>
-        <div><b>Scenario:</b> ${scenarioTitle(j.scenario)}</div>
-        <div><b>Spend:</b> ${moneyUSDT(j.amount)} USDT</div>
-        <div><b>Receive:</b> ${qtyBASE(gotBase)} ${j.base}</div>
-        <div><b>Average execution price:</b> ${priceUSDT(j.vwap)} USDT per 1 ${j.base}</div>
-        <div><b>Assets cost (no fees):</b> ${moneyUSDT(j.totalCost)} USDT</div>
-        <div><b>Unspent (not used due to orderbook depth):</b> ${moneyUSDT(j.unspent)} USDT</div>
-        <div><b>Fees:</b> ${moneyUSDT(j.totalFees)} USDT</div>
-        <div><b>Total to pay:</b> ${moneyUSDT(totalPay)} USDT</div>
-        <div><b>Current time:</b> ${j.generatedAt}</div>
-      </div>`;
-
-        const rows = j.legs.map(l => ({
-            ex: l.exchange,
-            amount: Number(l.amount),
-            price: Number(l.price),
-            fee: Number(l.fee),
-        }));
-
-        const scenario = $('scenario').value;
-        let bestEx = null, worstEx = null;
-
-        if (scenario === 'best_single' || scenario === 'equal_split') {
-            // среди строк (для equal_split — только там где amount > 0)
-            const candidates = scenario === 'equal_split' ? rows.filter(r => r.amount > 0) : rows;
-            let bestPrice = Infinity, worstPrice = -Infinity;
-            for (const r of candidates) {
-                if (r.price < bestPrice) { bestPrice = r.price; bestEx = r.ex; }
-                if (r.price > worstPrice) { worstPrice = r.price; worstEx = r.ex; }
-            }
-        }
-
-        const rowHtml = rows.map(r => {
-            let cls = '';
-            if (scenario === 'best_single' || scenario === 'equal_split') {
-                if (r.ex === bestEx) cls = 'best-row';
-                else if (r.ex === worstEx) cls = 'worst-row';
-            }
-            return `
-        <tr class="${cls}">
-          <td>${r.ex}</td>
-          <td class="num">${qtyBASE(r.amount)}</td>
-          <td class="num">${priceUSDT(r.price)}</td>
-          <td class="num">${moneyUSDT(r.fee)}</td>
-        </tr>`;
-        }).join('');
-
-        legs.classList.remove('hidden');
-        legs.innerHTML = `<h2>Allocation</h2>
-      <table class="data">
-        <colgroup><col class="col-exchange" /><col class="col-num" /><col class="col-num" /><col class="col-num" /></colgroup>
+    legs.innerHTML = `
+    <h2>${dict.legsTitle}</h2>
+    <div class="table-wrap">
+      <table class="table">
         <thead>
           <tr>
             <th>Exchange</th>
-            <th class="num">Amount (${j.base})</th>
-            <th class="num">Price (USDT/${j.base})</th>
-            <th class="num">Fee (USDT)</th>
+            <th>Amount</th>
+            <th>Price</th>
+            <th>Fee</th>
           </tr>
         </thead>
-        <tbody>${rowHtml}</tbody>
-      </table>`;
-    } catch (err) {
-        res.innerHTML = `<h2>Error</h2><pre>${String(err)}</pre>`;
-    } finally {
-        btn.disabled = false;
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function showError(err) {
+    const result = byId('result');
+    const legs = byId('legs');
+    const dict = I18N[document.documentElement.lang] || I18N.en;
+
+    result.classList.remove('hidden');
+    legs.classList.add('hidden');
+
+    result.innerHTML = `
+    <h2>${dict.resultTitle}</h2>
+    <div class="error">${dict.errRequest}: ${String(err && err.message || err)}</div>
+  `;
+}
+
+async function onSubmit(e) {
+    e.preventDefault();
+    const dict = I18N[document.documentElement.lang] || I18N.en;
+
+    const base = byId('base').value || 'BTC';
+    const quote = 'USDT';
+    const amount = parseNumber(byId('amount').value);
+    const depth = parseInt(byId('depth').value, 10);
+    const scenario = byId('scenario').value;
+
+    if (!isFinite(amount) || amount <= 0) {
+        alert(dict.errBadAmount);
+        return;
     }
+    if (!Number.isInteger(depth) || depth <= 0) {
+        alert(dict.errBadDepth);
+        return;
+    }
+
+    byId('calc-btn').disabled = true;
+
+    try {
+        const payload = { base, quote, amount, depth, scenario };
+        const resp = await apiPost('/api/plan', payload);
+        renderResult(resp);
+    } catch (err) {
+        showError(err);
+    } finally {
+        byId('calc-btn').disabled = false;
+    }
+}
+
+// === bootstrap ===
+document.addEventListener('DOMContentLoaded', () => {
+    // язык
+    setLang(getSavedLang());
+    const btn = byId('langBtn');
+    if (btn) btn.addEventListener('click', toggleLang);
+
+    // данные
+    checkHealth();
+    loadSymbols();
+
+    // форма
+    byId('plan-form').addEventListener('submit', onSubmit);
 });
