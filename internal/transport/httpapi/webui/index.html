@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CryptoBot — local test</title>
+    <title>CryptoBot — Scenarios Test</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,7 +13,7 @@
 </header>
 
 <main>
-    <form id="plan-form">
+    <form id="plan-form" class="card">
         <div class="row">
             <label>Buy</label>
             <select id="base"></select>
@@ -21,7 +21,6 @@
 
         <div class="row">
             <label>Pay</label>
-            <!-- фиксированный USDT, без стрелки -->
             <input id="quote" value="USDT" readonly class="readonly-input" />
         </div>
 
@@ -47,8 +46,10 @@
         <button id="calc-btn" type="submit">Calculate</button>
     </form>
 
-
+    <!-- Итоги -->
     <section id="result" class="card hidden"></section>
+
+    <!-- Разбивка по биржам -->
     <section id="legs" class="card hidden"></section>
 </main>
 

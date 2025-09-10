@@ -67,7 +67,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
-
 func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -81,58 +80,68 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "invalid JSON: " + err.Error()})
 		return
 	}
-	// нормализация в верхний регистр
+
+	// Нормализация
 	req.Base = strings.ToUpper(strings.TrimSpace(req.Base))
 	req.Quote = strings.ToUpper(strings.TrimSpace(req.Quote))
-
-	// обязательные поля
-	if req.Base == "" || req.Quote == "" || req.Amount <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "missing fields: base, quote, amount"})
-		return
+	req.Scenario = strings.TrimSpace(req.Scenario)
+	if req.Scenario == "" {
+		req.Scenario = "optimal"
 	}
-
-	// БИЗНЕС-ПРАВИЛА:
-	// 1) работаем только с USDT как валюта оплаты
-	if req.Quote != "USDT" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Поддерживается только оплата в USDT"})
-		return
-	}
-	// 2) Base не может быть USDT
-	if req.Base == "USDT" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Base не должен быть USDT при оплате USDT"})
-		return
-	}
-	// 3) Base и Quote не совпадают
-	if req.Base == req.Quote {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Base и Quote не должны совпадать"})
-		return
-	}
-
-	// дефолты
 	if req.Depth <= 0 {
 		req.Depth = 100
 	}
-	if req.Scenario == "" {
-		req.Scenario = "best_single"
+
+	// Валидация входа — вместо возврата пустого ответа возвращаем 400 + error
+	if req.Base == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "base is required"})
+		return
+	}
+	if req.Quote == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "quote is required"})
+		return
+	}
+	if req.Quote != "USDT" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "only USDT quote is supported"})
+		return
+	}
+	if strings.EqualFold(req.Base, "USDT") {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "base must not be USDT"})
+		return
+	}
+	if req.Amount <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "amount must be > 0"})
+		return
 	}
 
+	// Таймаут на расчёт
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	res, err := s.flow.Plan(ctx, req)
 	if err != nil {
 		code := http.StatusInternalServerError
-		if strings.Contains(strings.ToLower(err.Error()), "timeout") {
+		msg := err.Error()
+		low := strings.ToLower(msg)
+		if strings.Contains(low, "timeout") {
 			code = http.StatusGatewayTimeout
+		} else if strings.Contains(low, "unsupported") ||
+			strings.Contains(low, "amount must") ||
+			strings.Contains(low, "no order books") {
+			// ошибки бизнес-валидации → 400
+			code = http.StatusBadRequest
 		}
+
 		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
 		return
 	}
+
 	_ = json.NewEncoder(w).Encode(res)
 }
 
