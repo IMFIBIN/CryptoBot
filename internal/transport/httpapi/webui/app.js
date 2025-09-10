@@ -160,8 +160,24 @@ function buildSummaryHTML(j){
         ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
         : '';
 
+    // описания для сценариев
+    const descriptions = {
+        best_single: currentLang === 'ru'
+            ? 'Вся сумма уходит на одну биржу с наилучшей ценой'
+            : 'All funds go to the single exchange with the best price',
+        equal_split: currentLang === 'ru'
+            ? 'Сумма делится равными частями между всеми биржами'
+            : 'Funds are split equally across all exchanges',
+        optimal: currentLang === 'ru'
+            ? 'Сумма распределяется оптимально между биржами для минимальной цены исполнения'
+            : 'Funds are distributed optimally across exchanges for the best execution price'
+    };
+
+    const descr = descriptions[j.scenario] || '';
+
     return `
     <h2>${t.summary} — ${scenarioTitle(j.scenario || '')}</h2>
+    <p class="muted" style="margin-top:-6px;margin-bottom:12px;">${descr}</p>
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
@@ -178,6 +194,7 @@ function buildSummaryHTML(j){
     </div>
   `;
 }
+
 
 function buildAllocationHTML(j){
     const legs = Array.isArray(j.legs) ? j.legs : [];
