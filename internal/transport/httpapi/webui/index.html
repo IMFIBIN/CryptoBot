@@ -31,14 +31,12 @@
         </div>
 
         <div class="row">
-            <label for="amount" id="lbl-spend">Spend (USDT)</label>
-            <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
+            <!-- без (USDT) и с разделителями по разрядам -->
+            <label for="amount" id="lbl-spend">Spend</label>
+            <input id="amount" type="text" inputmode="numeric" autocomplete="off" value="1.000.000" />
         </div>
 
-        <div class="row">
-            <label for="depth" id="lbl-depth">Orderbook depth</label>
-            <input id="depth" type="number" value="100" />
-        </div>
+        <!-- Параметр глубины стакана удалён -->
 
         <div class="row">
             <label for="scenario" id="lbl-scenario">Scenario</label>

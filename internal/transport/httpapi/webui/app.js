@@ -5,8 +5,7 @@ const dict = {
     en: {
         buy: 'Buy',
         pay: 'Pay',
-        spend: 'Spend (USDT)',
-        depth: 'Orderbook depth',
+        spend: 'Spend',
         scenario: 'Scenario',
         calculate: 'Calculate',
         summary: 'Summary',
@@ -32,13 +31,13 @@ const dict = {
         best_single: 'Best single',
         equal_split: 'Equal split',
         optimal: 'Optimal',
-        usdt: 'USDT'
+        usdt: 'USDT',
+        calculating: 'Calculating…',
     },
     ru: {
         buy: 'Купить',
         pay: 'Оплатить',
-        spend: 'Сумма (USDT)',
-        depth: 'Глубина стакана',
+        spend: 'Сумма',
         scenario: 'Сценарий',
         calculate: 'Рассчитать',
         summary: 'Результат',
@@ -64,7 +63,8 @@ const dict = {
         best_single: 'Лучшая одиночная',
         equal_split: 'Равное распределение',
         optimal: 'Оптимально',
-        usdt: 'USDT'
+        usdt: 'USDT',
+        calculating: 'Расчёт…',
     }
 };
 
@@ -82,12 +82,11 @@ function setLang(lang){
     // form labels
     $('lbl-buy').textContent = dict[lang].buy;
     $('lbl-pay').textContent = dict[lang].pay;
-    $('lbl-spend').textContent = dict[lang].spend;
-    $('lbl-depth').textContent = dict[lang].depth;
+    $('lbl-spend').textContent = dict[lang].spend; // без (USDT)
     $('lbl-scenario').textContent = dict[lang].scenario;
     $('calc-btn').textContent = dict[lang].calculate;
 
-    // scenario options text (values остаются прежними)
+    // scenario options text
     const optMap = {
         best_single: dict[lang].best_single,
         equal_split: dict[lang].equal_split,
@@ -96,8 +95,7 @@ function setLang(lang){
     const sel = $('scenario');
     Array.from(sel.options).forEach(o => { o.text = optMap[o.value] || o.text; });
 
-    // health text обновится при следующем пинге,
-    // но обновим сразу текущее состояние:
+    // обновим health надпись, если не bad
     const health = $('health');
     if (health && !health.classList.contains('bad')) {
         health.textContent = dict[lang].serverOK;
@@ -105,6 +103,17 @@ function setLang(lang){
 }
 
 /* ========== Format helpers ========== */
+// Разделитель тысяч — точка, независимо от локали (1.000.000)
+const formatThousandsDots = (digits) =>
+    digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+const parseThousandsDots = (val) => {
+    // превращаем "1.234.567" -> 1234567 (число)
+    const digits = String(val || '').replace(/\./g, '').replace(/\s/g, '');
+    const n = parseInt(digits, 10);
+    return Number.isFinite(n) ? n : 0;
+};
+
 const moneyUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtyBASE   = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
@@ -242,6 +251,23 @@ document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     loadSymbols();
 
+    // Маска разделения тысяч в поле суммы (1.000.000)
+    const amt = $('amount');
+    if (amt) {
+        // первичная нормализация
+        amt.value = formatThousandsDots(String(amt.value || ''));
+
+        amt.addEventListener('input', () => {
+            const selEnd = amt.selectionEnd;
+            amt.value = formatThousandsDots(amt.value);
+            // курсор в конец — просто и надёжно
+            amt.setSelectionRange(amt.value.length, amt.value.length);
+        });
+        amt.addEventListener('blur', () => {
+            amt.value = formatThousandsDots(amt.value);
+        });
+    }
+
     const form = $('plan-form');
     const res  = $('result');
     const legs = $('legs');
@@ -255,19 +281,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
         const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
         const scenario = $('scenario')?.value || 'best_single';
-        const amount = Number($('amount')?.value || 0);
-        const depth = Number($('depth')?.value || 100);
+        const amount = parseThousandsDots($('amount')?.value || '0'); // из 1.000.000 -> 1000000
 
         res.classList.remove('hidden');
-        res.innerHTML = `<div class="muted">${currentLang === 'ru' ? 'Расчёт…' : 'Calculating…'}</div>`;
+        res.innerHTML = `<div class="muted">${dict[currentLang].calculating}</div>`;
         legs.classList.add('hidden');
         legs.innerHTML = '';
 
         try {
+            // depth больше не отправляем — сервер получит 0 (безлимит)
             const r = await fetch('/api/plan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base, quote, amount, depth, scenario })
+                body: JSON.stringify({ base, quote, amount, scenario })
             });
 
             const text = await r.text();
