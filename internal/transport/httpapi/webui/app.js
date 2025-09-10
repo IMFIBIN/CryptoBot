@@ -25,7 +25,6 @@ const dict = {
         exchange: 'Exchange',
         amountCol: 'Amount',
         priceCol: 'Price',
-        feeCol: 'Fee',
         total: 'Total',
         per: 'per 1',
         best_single: 'Best single',
@@ -57,7 +56,6 @@ const dict = {
         exchange: 'Биржа',
         amountCol: 'Количество',
         priceCol: 'Цена',
-        feeCol: 'Комиссия',
         total: 'Итого',
         per: 'за 1',
         best_single: 'Лучшая одиночная',
@@ -103,12 +101,11 @@ function setLang(lang){
 }
 
 /* ========== Format helpers ========== */
-// Разделитель тысяч — точка, независимо от локали (1.000.000)
+// Разделитель тысяч — точка (1.000.000)
 const formatThousandsDots = (digits) =>
     digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 const parseThousandsDots = (val) => {
-    // превращаем "1.234.567" -> 1234567 (число)
     const digits = String(val || '').replace(/\./g, '').replace(/\s/g, '');
     const n = parseInt(digits, 10);
     return Number.isFinite(n) ? n : 0;
@@ -123,8 +120,6 @@ const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU'
 
 const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
-const sumFees = (legs) => (Array.isArray(legs) ? legs : [])
-    .reduce((s, l) => s + Number((l && l.fee) || 0), 0);
 
 /* ========== Backend helpers ========== */
 async function checkHealth() {
@@ -172,6 +167,10 @@ function renderSummary(card, j) {
 
     const t = dict[currentLang];
 
+    const unspentBlock = (Number(j.unspent || 0) > 0.0000001)
+        ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
+        : '';
+
     card.classList.remove('hidden');
     card.innerHTML = `
     <h2>${t.summary}</h2>
@@ -179,7 +178,7 @@ function renderSummary(card, j) {
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
         <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
-        <div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>
+        ${unspentBlock}
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
       <div>
@@ -210,7 +209,6 @@ function renderAllocation(card, j) {
       <td>${l.exchange || '-'}</td>
       <td class="num">${qtyBASE(l.amount || 0)}</td>
       <td class="num">${priceUSDT(l.price || 0)}</td>
-      <td class="num">${moneyUSDT(l.fee || 0)}</td>
     </tr>`;
     }).join('');
 
@@ -225,7 +223,6 @@ function renderAllocation(card, j) {
           <th>${t.exchange}</th>
           <th class="num">${t.amountCol} (${j.base || '-'})</th>
           <th class="num">${t.priceCol} (${t.usdt}/${j.base || '-'})</th>
-          <th class="num">${t.feeCol} (${t.usdt})</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -234,7 +231,6 @@ function renderAllocation(card, j) {
           <th>${t.total}</th>
           <th class="num">${qtyBASE(sumAmount(legs))}</th>
           <th></th>
-          <th class="num">${moneyUSDT(sumFees(legs))}</th>
         </tr>
       </tfoot>
     </table>
@@ -254,13 +250,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Маска разделения тысяч в поле суммы (1.000.000)
     const amt = $('amount');
     if (amt) {
-        // первичная нормализация
         amt.value = formatThousandsDots(String(amt.value || ''));
-
         amt.addEventListener('input', () => {
-            const selEnd = amt.selectionEnd;
             amt.value = formatThousandsDots(amt.value);
-            // курсор в конец — просто и надёжно
             amt.setSelectionRange(amt.value.length, amt.value.length);
         });
         amt.addEventListener('blur', () => {
@@ -289,7 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
         legs.innerHTML = '';
 
         try {
-            // depth больше не отправляем — сервер получит 0 (безлимит)
             const r = await fetch('/api/plan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
