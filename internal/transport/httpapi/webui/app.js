@@ -6,7 +6,6 @@ const dict = {
         buy: 'Buy',
         pay: 'Pay',
         spend: 'Spend',
-        scenario: 'Scenario',
         calculate: 'Calculate',
         summary: 'Summary',
         allocation: 'Allocation',
@@ -32,12 +31,12 @@ const dict = {
         optimal: 'Optimal',
         usdt: 'USDT',
         calculating: 'Calculating…',
+        resultsFor: 'Results for',
     },
     ru: {
         buy: 'Купить',
         pay: 'Оплатить',
         spend: 'Сумма',
-        scenario: 'Сценарий',
         calculate: 'Рассчитать',
         summary: 'Результат',
         allocation: 'Распределение',
@@ -63,6 +62,7 @@ const dict = {
         optimal: 'Оптимально',
         usdt: 'USDT',
         calculating: 'Расчёт…',
+        resultsFor: 'Результаты для',
     }
 };
 
@@ -80,18 +80,8 @@ function setLang(lang){
     // form labels
     $('lbl-buy').textContent = dict[lang].buy;
     $('lbl-pay').textContent = dict[lang].pay;
-    $('lbl-spend').textContent = dict[lang].spend; // без (USDT)
-    $('lbl-scenario').textContent = dict[lang].scenario;
+    $('lbl-spend').textContent = dict[lang].spend;
     $('calc-btn').textContent = dict[lang].calculate;
-
-    // scenario options text
-    const optMap = {
-        best_single: dict[lang].best_single,
-        equal_split: dict[lang].equal_split,
-        optimal: dict[lang].optimal
-    };
-    const sel = $('scenario');
-    Array.from(sel.options).forEach(o => { o.text = optMap[o.value] || o.text; });
 
     // обновим health надпись, если не bad
     const health = $('health');
@@ -157,23 +147,21 @@ async function loadSymbols() {
     }
 }
 
-/* ========== Rendering ========== */
+/* ========== Rendering (HTML builders) ========== */
 function scenarioTitle(code){ return dict[currentLang][code] || code; }
 
-function renderSummary(card, j) {
+function buildSummaryHTML(j){
     const legs = Array.isArray(j.legs) ? j.legs : [];
     const received = sumAmount(legs);
     const assetsNoFees = Number(j.totalCost || 0) - Number(j.totalFees || 0);
 
     const t = dict[currentLang];
-
     const unspentBlock = (Number(j.unspent || 0) > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
         : '';
 
-    card.classList.remove('hidden');
-    card.innerHTML = `
-    <h2>${t.summary}</h2>
+    return `
+    <h2>${t.summary} — ${scenarioTitle(j.scenario || '')}</h2>
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
@@ -182,18 +170,16 @@ function renderSummary(card, j) {
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
       <div>
-        <div><strong>${t.scenario2}:</strong> ${scenarioTitle(j.scenario || '')}</div>
         <div><strong>${t.spendLabel}:</strong> ${moneyUSDT(j.amount || 0)} ${t.usdt}</div>
         <div><strong>${t.avgPrice}:</strong> ${priceUSDT(j.vwap || 0)} ${t.usdt} ${t.per} ${j.base || ''}</div>
         <div><strong>${t.assetsNoFees}:</strong> ${moneyUSDT(assetsNoFees)} ${t.usdt}</div>
-        <div><strong>${t.fees}:</strong> ${moneyUSDT(j.totalFees || 0)} ${t.usdt}</div>
         <div><strong>${t.totalToPay}:</strong> ${moneyUSDT(j.totalCost || 0)} ${t.usdt}</div>
       </div>
     </div>
   `;
 }
 
-function renderAllocation(card, j) {
+function buildAllocationHTML(j){
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
     let bestIdx = -1, worstIdx = -1;
@@ -214,8 +200,7 @@ function renderAllocation(card, j) {
 
     const t = dict[currentLang];
 
-    card.classList.remove('hidden');
-    card.innerHTML = `
+    return `
     <h2>${t.allocation}</h2>
     <table>
       <thead>
@@ -237,6 +222,15 @@ function renderAllocation(card, j) {
   `;
 }
 
+function buildScenarioPanel(j){
+    return `
+    <section class="card">
+      ${buildSummaryHTML(j)}
+      ${buildAllocationHTML(j)}
+    </section>
+  `;
+}
+
 /* ========== Boot ========== */
 document.addEventListener('DOMContentLoaded', () => {
     // init lang toggle
@@ -247,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     loadSymbols();
 
-    // Маска разделения тысяч в поле суммы (1.000.000)
+    // Маска разделения тысяч (1.000.000)
     const amt = $('amount');
     if (amt) {
         amt.value = formatThousandsDots(String(amt.value || ''));
@@ -261,8 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const form = $('plan-form');
-    const res  = $('result');
-    const legs = $('legs');
+    const cmp  = $('comparisons'); // контейнер для 3 сценариев
     const btn  = $('calc-btn');
 
     form?.addEventListener('submit', async (e) => {
@@ -272,37 +265,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
         const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
-        const scenario = $('scenario')?.value || 'best_single';
-        const amount = parseThousandsDots($('amount')?.value || '0'); // из 1.000.000 -> 1000000
+        const amount = parseThousandsDots($('amount')?.value || '0');
 
-        res.classList.remove('hidden');
-        res.innerHTML = `<div class="muted">${dict[currentLang].calculating}</div>`;
-        legs.classList.add('hidden');
-        legs.innerHTML = '';
+        // Прелоадер
+        cmp.innerHTML = `<section class="card"><div class="muted">${dict[currentLang].calculating}</div></section>`;
+
+        const scenarios = ['best_single', 'equal_split', 'optimal'];
 
         try {
-            const r = await fetch('/api/plan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base, quote, amount, scenario })
-            });
+            // параллельно считаем все сценарии
+            const reqBody = (scenario) => JSON.stringify({ base, quote, amount, scenario });
+            const fetchOne = (scenario) =>
+                fetch('/api/plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: reqBody(scenario)
+                }).then(async r => {
+                    const text = await r.text();
+                    if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
+                    const j = JSON.parse(text);
+                    if (j && j.error) throw new Error(j.error);
+                    return j;
+                });
 
-            const text = await r.text();
-            if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
+            const results = await Promise.all(scenarios.map(fetchOne));
 
-            let j;
-            try { j = JSON.parse(text); }
-            catch { throw new Error(`Bad JSON: ${text.slice(0, 400)}`); }
+            // отрисовка: заголовок + три панели
+            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
+            cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
 
-            if (j && j.error) {
-                res.innerHTML = `<h2>Error</h2><pre>${j.error}</pre>`;
-                return;
-            }
-
-            renderSummary(res, j || {});
-            renderAllocation(legs, j || {});
         } catch (err) {
-            res.innerHTML = `<h2>Error</h2><pre>${String(err)}</pre>`;
+            cmp.innerHTML = `<section class="card"><h2>Error</h2><pre>${String(err)}</pre></section>`;
         } finally {
             btn.disabled = false;
         }

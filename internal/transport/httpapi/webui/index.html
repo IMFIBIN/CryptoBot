@@ -31,30 +31,17 @@
         </div>
 
         <div class="row">
-            <!-- без (USDT) и с разделителями по разрядам -->
             <label for="amount" id="lbl-spend">Spend</label>
             <input id="amount" type="text" inputmode="numeric" autocomplete="off" value="1.000.000" />
         </div>
 
-        <!-- Параметр глубины стакана удалён -->
-
-        <div class="row">
-            <label for="scenario" id="lbl-scenario">Scenario</label>
-            <select id="scenario">
-                <option value="best_single">Best single</option>
-                <option value="equal_split">Equal split</option>
-                <option value="optimal" selected>Optimal</option>
-            </select>
-        </div>
+        <!-- Строка выбора сценария удалена -->
 
         <button id="calc-btn" type="submit">Calculate</button>
     </form>
 
-    <!-- Итоги -->
-    <section id="result" class="card hidden"></section>
-
-    <!-- Разбивка по биржам -->
-    <section id="legs" class="card hidden"></section>
+    <!-- Здесь будут рендериться 3 сценария -->
+    <section id="comparisons"></section>
 </main>
 
 <script src="app.js"></script>
