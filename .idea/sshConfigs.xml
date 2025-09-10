@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig host="89.111.171.43" id="128fab70-b1fa-4b1e-b774-fc08d7104888" keyPath="$USER_HOME$/.ssh/otccalc_ed25519" port="22" nameFormat="DESCRIPTIVE" username="admin" useOpenSSHConfig="false" />
+    </configs>
+  </component>
+</project>
