@@ -10,32 +10,38 @@
 <header>
     <h1>CryptoBot — Scenarios Test</h1>
     <div id="health" class="muted">Checking server…</div>
+
+    <!-- Переключатель языка -->
+    <div id="lang-toggle">
+        <button type="button" id="btn-en" class="lang-btn active">EN</button> |
+        <button type="button" id="btn-ru" class="lang-btn">RU</button>
+    </div>
 </header>
 
 <main>
     <form id="plan-form" class="card">
         <div class="row">
-            <label>Buy</label>
+            <label for="base" id="lbl-buy">Buy</label>
             <select id="base"></select>
         </div>
 
         <div class="row">
-            <label>Pay</label>
+            <label for="quote" id="lbl-pay">Pay</label>
             <input id="quote" value="USDT" readonly class="readonly-input" />
         </div>
 
         <div class="row">
-            <label>Spend (USDT)</label>
+            <label for="amount" id="lbl-spend">Spend (USDT)</label>
             <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
         </div>
 
         <div class="row">
-            <label>Orderbook depth</label>
+            <label for="depth" id="lbl-depth">Orderbook depth</label>
             <input id="depth" type="number" value="100" />
         </div>
 
         <div class="row">
-            <label>Scenario</label>
+            <label for="scenario" id="lbl-scenario">Scenario</label>
             <select id="scenario">
                 <option value="best_single">Best single</option>
                 <option value="equal_split">Equal split</option>

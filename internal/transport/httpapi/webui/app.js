@@ -1,37 +1,137 @@
 const $ = (id) => document.getElementById(id);
 
-const scenarioTitle = (code) => ({
-    best_single: 'Best single',
-    equal_split: 'Equal split',
-    optimal:     'Optimal',
-}[code] || code);
+/* ========== i18n ========== */
+const dict = {
+    en: {
+        buy: 'Buy',
+        pay: 'Pay',
+        spend: 'Spend (USDT)',
+        depth: 'Orderbook depth',
+        scenario: 'Scenario',
+        calculate: 'Calculate',
+        summary: 'Summary',
+        allocation: 'Allocation',
+        serverOK: 'Server: OK',
+        serverFail: 'Server is unreachable',
+        pair: 'Pair',
+        receive: 'Receive',
+        unspent: 'Unspent (not used due to orderbook depth)',
+        currentTime: 'Current time',
+        scenario2: 'Scenario',
+        spendLabel: 'Spend',
+        avgPrice: 'Average execution price',
+        assetsNoFees: 'Assets cost (no fees)',
+        fees: 'Fees',
+        totalToPay: 'Total to pay',
+        exchange: 'Exchange',
+        amountCol: 'Amount',
+        priceCol: 'Price',
+        feeCol: 'Fee',
+        total: 'Total',
+        per: 'per 1',
+        best_single: 'Best single',
+        equal_split: 'Equal split',
+        optimal: 'Optimal',
+        usdt: 'USDT'
+    },
+    ru: {
+        buy: 'Купить',
+        pay: 'Оплатить',
+        spend: 'Сумма (USDT)',
+        depth: 'Глубина стакана',
+        scenario: 'Сценарий',
+        calculate: 'Рассчитать',
+        summary: 'Результат',
+        allocation: 'Распределение',
+        serverOK: 'Сервер: OK',
+        serverFail: 'Сервер недоступен',
+        pair: 'Пара',
+        receive: 'Получите',
+        unspent: 'Не израсходовано (из-за глубины стакана)',
+        currentTime: 'Текущее время',
+        scenario2: 'Сценарий',
+        spendLabel: 'Затраты',
+        avgPrice: 'Средняя цена исполнения',
+        assetsNoFees: 'Стоимость активов (без комиссий)',
+        fees: 'Комиссии',
+        totalToPay: 'Итого к оплате',
+        exchange: 'Биржа',
+        amountCol: 'Количество',
+        priceCol: 'Цена',
+        feeCol: 'Комиссия',
+        total: 'Итого',
+        per: 'за 1',
+        best_single: 'Лучшая одиночная',
+        equal_split: 'Равное распределение',
+        optimal: 'Оптимально',
+        usdt: 'USDT'
+    }
+};
 
-const moneyUSDT = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qtyBASE   = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
-const priceUSDT = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+let currentLang = localStorage.getItem('lang') || 'en';
 
-// безопасные суммирования
+function setLang(lang){
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+
+    // toggle button highlight
+    document.querySelectorAll('#lang-toggle .lang-btn').forEach(btn=>{
+        btn.classList.toggle('active', btn.id === `btn-${lang}`);
+    });
+
+    // form labels
+    $('lbl-buy').textContent = dict[lang].buy;
+    $('lbl-pay').textContent = dict[lang].pay;
+    $('lbl-spend').textContent = dict[lang].spend;
+    $('lbl-depth').textContent = dict[lang].depth;
+    $('lbl-scenario').textContent = dict[lang].scenario;
+    $('calc-btn').textContent = dict[lang].calculate;
+
+    // scenario options text (values остаются прежними)
+    const optMap = {
+        best_single: dict[lang].best_single,
+        equal_split: dict[lang].equal_split,
+        optimal: dict[lang].optimal
+    };
+    const sel = $('scenario');
+    Array.from(sel.options).forEach(o => { o.text = optMap[o.value] || o.text; });
+
+    // health text обновится при следующем пинге,
+    // но обновим сразу текущее состояние:
+    const health = $('health');
+    if (health && !health.classList.contains('bad')) {
+        health.textContent = dict[lang].serverOK;
+    }
+}
+
+/* ========== Format helpers ========== */
+const moneyUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtyBASE   = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
 const sumFees = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.fee) || 0), 0);
 
-// health
+/* ========== Backend helpers ========== */
 async function checkHealth() {
     const node = $('health');
     try {
         const r = await fetch('/api/health', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
-        node.textContent = j?.status ? `Server: OK` : 'Server: OK';
+        node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
         node.classList.remove('muted', 'bad');
     } catch {
-        node.textContent = 'Server is unreachable';
+        node.textContent = dict[currentLang].serverFail;
         node.classList.add('bad');
     }
 }
 
-// загрузка символов
 async function loadSymbols() {
     const baseSel = $('base');
     const quoteSel = $('quote');
@@ -47,46 +147,47 @@ async function loadSymbols() {
         baseSel.innerHTML  = bases.map(b => `<option value="${b}">${b}</option>`).join('');
         quoteSel.value = (quotes.includes('USDT') ? 'USDT' : (quotes[0] || 'USDT'));
     } catch {
-        // fallback если /api/symbols не отвечает
         baseSel.innerHTML  = ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT']
             .map(b => `<option value="${b}">${b}</option>`).join('');
         quoteSel.value = 'USDT';
     }
 }
 
-// Summary
+/* ========== Rendering ========== */
+function scenarioTitle(code){ return dict[currentLang][code] || code; }
+
 function renderSummary(card, j) {
     const legs = Array.isArray(j.legs) ? j.legs : [];
     const received = sumAmount(legs);
     const assetsNoFees = Number(j.totalCost || 0) - Number(j.totalFees || 0);
 
+    const t = dict[currentLang];
+
     card.classList.remove('hidden');
     card.innerHTML = `
-      <h2>Summary</h2>
-      <div class="grid-2">
-        <div>
-          <div><strong>Pair:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
-          <div><strong>Receive:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
-          <div><strong>Unspent (not used due to orderbook depth):</strong> ${moneyUSDT(j.unspent || 0)} ${j.quote || 'USDT'}</div>
-          <div><strong>Current time:</strong> ${j.generatedAt || ''}</div>
-        </div>
-        <div>
-          <div><strong>Scenario:</strong> ${scenarioTitle(j.scenario || '')}</div>
-          <div><strong>Spend:</strong> ${moneyUSDT(j.amount || 0)} ${j.quote || 'USDT'}</div>
-          <div><strong>Average execution price:</strong> ${priceUSDT(j.vwap || 0)} USDT per 1 ${j.base || ''}</div>
-          <div><strong>Assets cost (no fees):</strong> ${moneyUSDT(assetsNoFees)} USDT</div>
-          <div><strong>Fees:</strong> ${moneyUSDT(j.totalFees || 0)} USDT</div>
-          <div><strong>Total to pay:</strong> ${moneyUSDT(j.totalCost || 0)} USDT</div>
-        </div>
+    <h2>${t.summary}</h2>
+    <div class="grid-2">
+      <div>
+        <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
+        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
+        <div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>
+        <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
-    `;
+      <div>
+        <div><strong>${t.scenario2}:</strong> ${scenarioTitle(j.scenario || '')}</div>
+        <div><strong>${t.spendLabel}:</strong> ${moneyUSDT(j.amount || 0)} ${t.usdt}</div>
+        <div><strong>${t.avgPrice}:</strong> ${priceUSDT(j.vwap || 0)} ${t.usdt} ${t.per} ${j.base || ''}</div>
+        <div><strong>${t.assetsNoFees}:</strong> ${moneyUSDT(assetsNoFees)} ${t.usdt}</div>
+        <div><strong>${t.fees}:</strong> ${moneyUSDT(j.totalFees || 0)} ${t.usdt}</div>
+        <div><strong>${t.totalToPay}:</strong> ${moneyUSDT(j.totalCost || 0)} ${t.usdt}</div>
+      </div>
+    </div>
+  `;
 }
 
-// Allocation
 function renderAllocation(card, j) {
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
-    // best/worst по цене
     let bestIdx = -1, worstIdx = -1;
     legs.forEach((l, i) => {
         if (typeof l?.price !== 'number' || !isFinite(l.price)) return;
@@ -97,45 +198,53 @@ function renderAllocation(card, j) {
     const rows = legs.map((l, i) => {
         const cls = i === bestIdx ? 'best-row' : i === worstIdx ? 'worst-row' : '';
         return `<tr class="${cls}">
-          <td>${l.exchange || '-'}</td>
-          <td class="num">${qtyBASE(l.amount || 0)}</td>
-          <td class="num">${priceUSDT(l.price || 0)}</td>
-          <td class="num">${moneyUSDT(l.fee || 0)}</td>
-        </tr>`;
+      <td>${l.exchange || '-'}</td>
+      <td class="num">${qtyBASE(l.amount || 0)}</td>
+      <td class="num">${priceUSDT(l.price || 0)}</td>
+      <td class="num">${moneyUSDT(l.fee || 0)}</td>
+    </tr>`;
     }).join('');
+
+    const t = dict[currentLang];
 
     card.classList.remove('hidden');
     card.innerHTML = `
-      <h2>Allocation</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Exchange</th>
-            <th class="num">Amount (${j.base || '-'})</th>
-            <th class="num">Price (USDT/${j.base || '-'})</th>
-            <th class="num">Fee (USDT)</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          <tr>
-            <th>Total</th>
-            <th class="num">${qtyBASE(sumAmount(legs))}</th>
-            <th></th>
-            <th class="num">${moneyUSDT(sumFees(legs))}</th>
-          </tr>
-        </tfoot>
-      </table>
-    `;
+    <h2>${t.allocation}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>${t.exchange}</th>
+          <th class="num">${t.amountCol} (${j.base || '-'})</th>
+          <th class="num">${t.priceCol} (${t.usdt}/${j.base || '-'})</th>
+          <th class="num">${t.feeCol} (${t.usdt})</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr>
+          <th>${t.total}</th>
+          <th class="num">${qtyBASE(sumAmount(legs))}</th>
+          <th></th>
+          <th class="num">${moneyUSDT(sumFees(legs))}</th>
+        </tr>
+      </tfoot>
+    </table>
+  `;
 }
 
+/* ========== Boot ========== */
 document.addEventListener('DOMContentLoaded', () => {
+    // init lang toggle
+    $('btn-en').addEventListener('click', () => setLang('en'));
+    $('btn-ru').addEventListener('click', () => setLang('ru'));
+    setLang(currentLang);
+
     checkHealth();
     loadSymbols();
 
     const form = $('plan-form');
-    const res  = $('result'); // Summary card
-    const legs = $('legs');   // Allocation card
+    const res  = $('result');
+    const legs = $('legs');
     const btn  = $('calc-btn');
 
     form?.addEventListener('submit', async (e) => {
@@ -150,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const depth = Number($('depth')?.value || 100);
 
         res.classList.remove('hidden');
-        res.innerHTML = `<div class="muted">Calculating…</div>`;
+        res.innerHTML = `<div class="muted">${currentLang === 'ru' ? 'Расчёт…' : 'Calculating…'}</div>`;
         legs.classList.add('hidden');
         legs.innerHTML = '';
 
