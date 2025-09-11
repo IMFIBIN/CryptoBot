@@ -3,23 +3,24 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CryptoBot — local test</title>
+    <title>CryptoBot — Scenarios Test</title>
     <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
 </head>
 <body>
-
-<!-- Переключатель языка -->
-<div class="topbar">
-    <button id="langBtn" class="lang-btn" aria-label="Switch language">RU</button>
-</div>
-
 <header>
     <h1>CryptoBot — Scenarios Test</h1>
-    <div id="health" class="muted">Checking server…</div>
+    <div id="health" class="muted" data-state="checking" data-i18n="checkingServer">Checking server…</div>
+
+    <!-- Переключатель языка -->
+    <div id="lang-toggle">
+        <button type="button" id="langBtn" class="lang-btn">RU</button>
+    </div>
 </header>
 
 <main>
-    <form id="plan-form">
+    <!-- Форма параметров -->
+    <form id="plan-form" class="card">
         <div class="row">
             <label for="base" data-i18n="buy">Buy</label>
             <select id="base"></select>
@@ -32,30 +33,28 @@
 
         <div class="row">
             <label for="amount" data-i18n="spend">Spend</label>
-            <input id="amount" type="text" inputmode="numeric" pattern="[0-9]*" value="1000000" />
+            <input id="amount" type="text" placeholder="1,000,000" value="1000000" />
         </div>
 
         <div class="row">
-            <label for="depth" data-i18n="depth">Orderbook depth</label>
-            <input id="depth" type="text" inputmode="numeric" pattern="[0-9]*" value="100" />
-        </div>
-
-        <div class="row">
-            <label for="scenario" data-i18n="scenario">Scenario</label>
+            <label for="scenario" data-i18n="fScenario">Scenario</label>
             <select id="scenario">
-                <option value="optimal">Optimal</option>
                 <option value="best_single">Best single</option>
                 <option value="equal_split">Equal split</option>
+                <option value="optimal">Optimal</option>
             </select>
         </div>
 
-        <button id="calc-btn" type="submit" data-i18n="calculate">Calculate</button>
+        <div class="actions">
+            <button id="calc-btn" class="primary" type="submit" data-i18n="calculate">Calculate</button>
+        </div>
     </form>
 
+    <!-- Карточка результата -->
     <section id="result" class="card hidden"></section>
+
+    <!-- Таблица ног исполнения -->
     <section id="legs" class="card hidden"></section>
 </main>
-
-<script src="app.js"></script>
 </body>
 </html>

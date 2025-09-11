@@ -80,15 +80,6 @@ func httpGetJSON[T any](ctx context.Context, c *http.Client, url string, out *T)
 	return last
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// ------------------ FETCHERS ------------------
-
 // BINANCE
 func (rf *RealFlow) fetchBinance(ctx context.Context, coin string, depth int) (book, fetchDiag) {
 	d := depth
@@ -656,8 +647,8 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 		return httpapi.PlanResponse{}, fmt.Errorf("amount must be > 0")
 	}
 
-	// depth=0 => максимально возможный для каждой биржи
-	depth := req.Depth
+	// ВСЕГДА максимальная глубина: 0 => «максимум» в fetchers
+	depth := 0
 
 	isUSDT := func(s string) bool { return strings.EqualFold(s, "USDT") }
 	sideBuy := !isUSDT(req.Base) && isUSDT(req.Quote)    // монета за USDT (amount в USDT)
@@ -666,7 +657,6 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 
 	var legs []httpapi.PlanLeg
 	var vwap, total, unspent float64
-	var fees float64 = 0 // пока 0
 
 	switch {
 	case sideBuy:
@@ -694,7 +684,11 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 			if qty <= 0 {
 				continue
 			}
-			legs = append(legs, httpapi.PlanLeg{Exchange: b.Exchange, Amount: qty, Price: priceByEx[b.Exchange], Fee: 0})
+			legs = append(legs, httpapi.PlanLeg{
+				Exchange: b.Exchange,
+				Amount:   qty,
+				Price:    priceByEx[b.Exchange],
+			})
 		}
 		unspent = roundCents(amountUSDT - total)
 		if unspent < 0 {
@@ -724,7 +718,11 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 			if q <= 0 {
 				continue
 			}
-			legs = append(legs, httpapi.PlanLeg{Exchange: b.Exchange, Amount: q, Price: priceBid[b.Exchange], Fee: 0})
+			legs = append(legs, httpapi.PlanLeg{
+				Exchange: b.Exchange,
+				Amount:   q,
+				Price:    priceBid[b.Exchange],
+			})
 		}
 
 		total = roundCents(usdProceeds)
@@ -748,7 +746,6 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 		Scenario:    req.Scenario,
 		VWAP:        vwap,
 		TotalCost:   total,
-		TotalFees:   fees, // 0
 		Unspent:     unspent,
 		Legs:        legs,
 		GeneratedAt: time.Now().Format("15:04 02.01.2006"),

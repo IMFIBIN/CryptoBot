@@ -4,8 +4,6 @@ const I18N = {
         buy: 'Buy',
         pay: 'Pay',
         spend: 'Spend',
-        depth: 'Orderbook depth',
-        scenario: 'Scenario',
         calculate: 'Calculate',
         scenarioOptions: {
             best_single: 'Best single',
@@ -17,65 +15,65 @@ const I18N = {
         serverFail: 'Server is not responding',
         resultTitle: 'Plan result',
         legsTitle: 'Execution legs',
-
-        // result card field labels
-        fBase: 'Base',
-        fQuote: 'Quote',
-        fAmount: 'Amount',
-        fScenario: 'Scenario',
-        fVWAP: 'VWAP',
-        fTotalCost: 'Total cost',
-        fTotalFees: 'Total fees',
+        summaryTitle: 'Summary',
+        allocationTitle: 'Allocation',
+        intro: {
+            best_single: 'All funds go to the single exchange with the best price',
+            equal_split: 'Funds are split equally across all exchanges',
+            optimal: 'Funds are allocated optimally across exchanges',
+        },
+        pair: 'Pair',
+        receive: 'Receive',
+        currentTime: 'Current time',
+        spendLabel: 'Spend',
+        avgExecPrice: 'Average execution price',
+        assetsCost: 'Assets cost',
+        totalToPay: 'Total to pay',
         fUnspent: 'Unspent',
         fGenerated: 'Generated',
-
-        // table headers
         thExchange: 'Exchange',
-        thAmount: 'Amount',
-        thPrice: 'Price',
-        thFee: 'Fee',
-
+        thAmountUnit: 'Amount ({unit})',
+        thPriceUnit: 'Price ({quote}/{base})',
+        resultsFor: 'Results for',
         errBadAmount: 'Enter a valid amount',
-        errBadDepth: 'Enter a valid depth',
         errRequest: 'Request failed',
     },
     ru: {
         buy: 'Купить',
-        pay: 'Платить',
-        spend: 'Потратить',
-        depth: 'Глубина стакана',
-        scenario: 'Сценарий',
+        pay: 'Отдаёте',
+        spend: 'Сумма',
         calculate: 'Рассчитать',
         scenarioOptions: {
-            best_single: 'Лучшая одна биржа',
-            equal_split: 'Равные доли',
-            optimal: 'Оптимально',
+            best_single: 'Самая выгодная биржа',
+            equal_split: 'Равное распределение средств по биржам',
+            optimal: 'Лучшее распределение средств',
         },
         checkingServer: 'Проверяем сервер…',
         serverOK: 'Сервер работает',
         serverFail: 'Сервер не отвечает',
-        resultTitle: 'Результат плана',
-        legsTitle: 'Ноги исполнения',
-
-        // result card field labels
-        fBase: 'Базовая',
-        fQuote: 'Котируемая',
-        fAmount: 'Сумма',
-        fScenario: 'Сценарий',
-        fVWAP: 'Средняя цена (VWAP)',
-        fTotalCost: 'Итого потрачено',
-        fTotalFees: 'Комиссии',
+        resultTitle: 'Результат',
+        legsTitle: 'Сделки',
+        summaryTitle: 'Сводка',
+        allocationTitle: 'Распределение',
+        intro: {
+            best_single: 'Все средства на одну биржу с лучшей ценой',
+            equal_split: 'Средства поровну распределены по биржам',
+            optimal: 'Средства распределены оптимально по биржам',
+        },
+        pair: 'Пара',
+        receive: 'Получите',
+        currentTime: 'Текущее время',
+        spendLabel: 'Потратить',
+        avgExecPrice: 'Средняя цена исполнения',
+        assetsCost: 'Стоимость актива',
+        totalToPay: 'Итого к оплате',
         fUnspent: 'Остаток',
         fGenerated: 'Сгенерировано',
-
-        // table headers
         thExchange: 'Биржа',
-        thAmount: 'Количество',
-        thPrice: 'Цена',
-        thFee: 'Комиссия',
-
+        thAmountUnit: 'Количество ({unit})',
+        thPriceUnit: 'Цена ({quote}/{base})',
+        resultsFor: 'Результаты для',
         errBadAmount: 'Введите корректную сумму',
-        errBadDepth: 'Введите корректную глубину',
         errRequest: 'Ошибка запроса',
     }
 };
@@ -113,7 +111,6 @@ function setLang(lang) {
         health.textContent = dict.checkingServer;
     }
 
-    // Перерисовать уже полученный результат на новом языке
     if (lastResponse) {
         renderResult(lastResponse);
     }
@@ -215,11 +212,10 @@ async function loadSymbols() {
             bases = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']; // fallback
         }
 
-        const coins = Array.from(new Set(['USDT', ...bases])); // добавим USDT всегда
+        const coins = Array.from(new Set(['USDT', ...bases]));
         fillSelectWithCoins(baseSel, coins);
         fillSelectWithCoins(paySel, coins);
 
-        // по умолчанию: покупаем BTC за USDT
         baseSel.value = 'BTC';
         paySel.value = 'USDT';
     } catch (e) {
@@ -232,8 +228,7 @@ async function loadSymbols() {
 }
 
 function renderResult(resp) {
-    lastResponse = resp; // запомним для смены языка
-
+    lastResponse = resp;
     const result = byId('result');
     const legs = byId('legs');
     const dict = I18N[document.documentElement.lang] || I18N.en;
@@ -242,19 +237,25 @@ function renderResult(resp) {
     legs.classList.remove('hidden');
 
     const scenarioLabel = dict.scenarioOptions[resp.scenario] || resp.scenario;
+    const introText = (dict.intro && dict.intro[resp.scenario]) ? dict.intro[resp.scenario] : '';
+
+    const thAmountUnit = (dict.thAmountUnit || '{unit}').replace('{unit}', resp.base);
+    const thPriceUnit = (dict.thPriceUnit || '{quote}/{base}')
+        .replace('{quote}', resp.quote)
+        .replace('{base}', resp.base);
 
     result.innerHTML = `
-    <h2>${dict.resultTitle}</h2>
+    <h2>${dict.summaryTitle} — ${scenarioLabel}</h2>
+    ${introText ? `<div class="muted">${introText}</div>` : ''}
     <div class="kv">
-      <div><span>${dict.fBase}</span><b>${resp.base}</b></div>
-      <div><span>${dict.fQuote}</span><b>${resp.quote}</b></div>
-      <div><span>${dict.fAmount}</span><b>${fmt2(resp.amount)}</b></div>
-      <div><span>${dict.fScenario}</span><b>${scenarioLabel}</b></div>
-      <div><span>${dict.fVWAP}</span><b>${fmt8(resp.vwap)}</b></div>
-      <div><span>${dict.fTotalCost}</span><b>${fmt2(resp.totalCost)}</b></div>
-      <div><span>${dict.fTotalFees}</span><b>${fmt2(resp.totalFees)}</b></div>
-      <div><span>${dict.fUnspent}</span><b>${fmt2(resp.unspent)}</b></div>
-      <div><span>${dict.fGenerated}</span><b>${resp.generatedAt || ''}</b></div>
+      <div><span>${dict.pair}</span><b>${resp.base}/${resp.quote}</b></div>
+      <div><span>${dict.spendLabel}</span><b>${fmt2(resp.amount)} ${resp.quote}</b></div>
+      <div><span>${dict.receive}</span><b>${fmt8(resp.totalQty || 0)} ${resp.base}</b></div>
+      <div><span>${dict.avgExecPrice}</span><b>${fmt8(resp.vwap)} ${resp.quote}/${resp.base}</b></div>
+      <div><span>${dict.assetsCost}</span><b>${fmt2(resp.totalCost)} ${resp.quote}</b></div>
+      <div><span>${dict.totalToPay}</span><b>${fmt2(resp.totalCost)} ${resp.quote}</b></div>
+      <div><span>${dict.fUnspent}</span><b>${fmt2(resp.unspent)} ${resp.quote}</b></div>
+      <div><span>${dict.currentTime}</span><b>${resp.generatedAt || ''}</b></div>
     </div>
   `;
 
@@ -263,20 +264,18 @@ function renderResult(resp) {
       <td>${l.exchange}</td>
       <td class="num">${fmt8(l.amount)}</td>
       <td class="num">${fmt8(l.price)}</td>
-      <td class="num">${fmt2(l.fee)}</td>
     </tr>
   `).join('');
 
     legs.innerHTML = `
-    <h2>${dict.legsTitle}</h2>
+    <h2>${dict.allocationTitle}</h2>
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
             <th>${dict.thExchange}</th>
-            <th>${dict.thAmount}</th>
-            <th>${dict.thPrice}</th>
-            <th>${dict.thFee}</th>
+            <th>${thAmountUnit}</th>
+            <th>${thPriceUnit}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -287,7 +286,6 @@ function renderResult(resp) {
 
 function showError(err) {
     lastResponse = null;
-
     const result = byId('result');
     const legs = byId('legs');
     const dict = I18N[document.documentElement.lang] || I18N.en;
@@ -305,18 +303,13 @@ async function onSubmit(e) {
     e.preventDefault();
     const dict = I18N[document.documentElement.lang] || I18N.en;
 
-    const buy = byId('base').value; // что хотим получить
-    const pay = byId('pay').value;  // чем платим
+    const buy = byId('base').value;
+    const pay = byId('pay').value;
     const amount = parseNumber(byId('amount').value);
-    const depth = parseInt(byId('depth').value, 10);
     const scenario = byId('scenario').value;
 
     if (!isFinite(amount) || amount <= 0) {
         alert(dict.errBadAmount);
-        return;
-    }
-    if (!Number.isInteger(depth) || depth <= 0) {
-        alert(dict.errBadDepth);
         return;
     }
     if (buy === pay) {
@@ -324,8 +317,7 @@ async function onSubmit(e) {
         return;
     }
 
-    // Всегда шлём как есть: base=Buy, quote=Pay, amount — в единицах Pay
-    const payload = { base: buy, quote: pay, amount, depth, scenario };
+    const payload = { base: buy, quote: pay, amount, scenario };
 
     byId('calc-btn').disabled = true;
 
@@ -339,7 +331,6 @@ async function onSubmit(e) {
     }
 }
 
-// === bootstrap ===
 document.addEventListener('DOMContentLoaded', () => {
     setLang(getSavedLang());
     const btn = byId('langBtn');
@@ -347,6 +338,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     checkHealth();
     loadSymbols();
-
     byId('plan-form').addEventListener('submit', onSubmit);
 });

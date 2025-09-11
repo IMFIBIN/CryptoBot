@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"cryptobot/internal/domain"
-	"cryptobot/internal/usecase/fees"
 )
 
 type ExchangeEval struct {
@@ -12,16 +11,14 @@ type ExchangeEval struct {
 	AvgPrice   float64
 	Qty        float64
 	AmountUSDT float64
-	Commission float64
-	Coverage   float64 // %
+	Coverage   float64
 }
 
 type Leg struct {
 	Exchange   string
 	Price      float64
 	Qty        float64
-	AmountUSDT float64 // BUY: потрачено; SELL: получено (после комиссии)
-	FeeUSDT    float64 // комиссия по этой "ножке"
+	AmountUSDT float64
 }
 
 type Result struct {
@@ -46,7 +43,6 @@ type Inputs struct {
 	Right      string
 	Amount     float64
 	OrderBooks map[string]*domain.OrderBook
-	Fees       map[string]fees.Fee // <<<<< ИНТЕРФЕЙС КОМИССИЙ
 	Now        time.Time
 	MaxStale   time.Duration
 }

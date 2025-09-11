@@ -9,48 +9,67 @@ import (
 type EqualSplit struct{}
 
 func (EqualSplit) Name() string {
-	return "Сценарий #2 (равное распределение)"
+	return "Сценарий #2 (Равное распределение средств по биржам)"
 }
 
 func (EqualSplit) Run(in Inputs) Result {
 	res := Result{Asset: in.Right}
 
-	parts := make([]string, 0, len(in.OrderBooks))
-	for ex := range in.OrderBooks {
-		parts = append(parts, ex)
+	type exOB struct {
+		ex string
 	}
-	sort.Strings(parts)
-	if len(parts) == 0 {
+	var xs []exOB
+	for ex, ob := range in.OrderBooks {
+		if ob != nil {
+			xs = append(xs, exOB{ex: ex})
+		}
+	}
+	if len(xs) == 0 {
 		return res
 	}
+	sort.Slice(xs, func(i, j int) bool { return xs[i].ex < xs[j].ex })
 
-	split := in.Amount / float64(len(parts))
-	for _, ex := range parts {
-		ob := in.OrderBooks[ex]
-		f, ok := in.Fees[ex]
-		if !ok || ob == nil {
-			continue
-		}
-		if in.Direction == Buy {
-			qty, avg, spentNet, fee := orderbook.BuyQtyFromAsksWithFee(ob.Asks, split, f)
-			if qty <= 0 {
-				res.Leftover += split
+	split := in.Amount / float64(len(xs))
+
+	switch in.Direction {
+	case Buy:
+		for _, it := range xs {
+			ob := in.OrderBooks[it.ex]
+			if ob == nil {
 				continue
 			}
-			res.Legs = append(res.Legs, Leg{Exchange: ex, Price: avg, Qty: qty, AmountUSDT: spentNet, FeeUSDT: fee})
+			qty, avg, spent := orderbook.BuyQtyFromAsks(ob.Asks, split)
+			if qty <= 0 || avg <= 0 || spent <= 0 {
+				continue
+			}
+			res.Legs = append(res.Legs, Leg{
+				Exchange:   it.ex,
+				Price:      avg,
+				Qty:        qty,
+				AmountUSDT: spent,
+			})
 			res.TotalQty += qty
-			res.TotalUSDT += spentNet
-			if split > spentNet {
-				res.Leftover += split - spentNet
-			}
-		} else {
-			receivedNet, avg, fee := orderbook.SellFromBidsWithFee(ob.Bids, split, f)
-			if receivedNet <= 0 {
+			res.TotalUSDT += spent
+		}
+
+	case Sell:
+		for _, it := range xs {
+			ob := in.OrderBooks[it.ex]
+			if ob == nil {
 				continue
 			}
-			res.Legs = append(res.Legs, Leg{Exchange: ex, Price: avg, Qty: split, AmountUSDT: receivedNet, FeeUSDT: fee})
+			received, avg := orderbook.SellFromBids(ob.Bids, split)
+			if received <= 0 || avg <= 0 {
+				continue
+			}
+			res.Legs = append(res.Legs, Leg{
+				Exchange:   it.ex,
+				Price:      avg,
+				Qty:        split,
+				AmountUSDT: received,
+			})
 			res.TotalQty += split
-			res.TotalUSDT += receivedNet
+			res.TotalUSDT += received
 		}
 	}
 

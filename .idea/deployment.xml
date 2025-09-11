@@ -6,8 +6,7 @@
       <paths name="otc-server">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/admin/otccalc" local="$PROJECT_DIR$" web="/" />
-            <mapping local="" />
+            <mapping deploy="/home/admin/otccalc/webui" local="$PROJECT_DIR$/build/webui" web="/" />
           </mappings>
         </serverdata>
       </paths>

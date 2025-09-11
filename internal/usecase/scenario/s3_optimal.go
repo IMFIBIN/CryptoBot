@@ -8,117 +8,150 @@ import (
 type Optimal struct{}
 
 func (Optimal) Name() string {
-	return "Сценарий #3 (оптимальное распределение)"
+	return "Сценарий #3 (Лучшее распределение средств)"
 }
 
-// Простой жадный алгоритм: идём по лучшим уровням разных бирж, пока не исчерпаем бюджет/объём.
 func (Optimal) Run(in Inputs) Result {
 	res := Result{Asset: in.Right}
 
-	type quote struct {
-		ex string
-		p  float64 // цена
-		q  float64 // объём по этой цене
+	type legAgg struct {
+		qty  float64
+		usdt float64
 	}
 
-	// Соберём ленты
-	var quotes []quote
-	for ex, ob := range in.OrderBooks {
-		if ob == nil {
-			continue
+	legsByEx := map[string]*legAgg{}
+
+	add := func(ex string, price, qty float64) {
+		if qty <= 0 || price <= 0 {
+			return
 		}
-		levels := ob.Asks
-		if in.Direction == Sell {
-			levels = ob.Bids
+		l := legsByEx[ex]
+		if l == nil {
+			l = &legAgg{}
+			legsByEx[ex] = l
 		}
-		for _, lv := range levels {
-			p, ok1 := parseFloat(lv.Price)
-			q, ok2 := parseFloat(lv.Quantity)
-			if !ok1 || !ok2 || p <= 0 || q <= 0 {
+		l.qty += qty
+		l.usdt += price * qty
+		res.TotalQty += qty
+		res.TotalUSDT += price * qty
+	}
+
+	switch in.Direction {
+	case Buy:
+		// Собираем все аски всех бирж в единый массив (ex, price, qty)
+		type level struct {
+			ex    string
+			price float64
+			qty   float64
+		}
+		var all []level
+		for ex, ob := range in.OrderBooks {
+			if ob == nil {
 				continue
 			}
-			quotes = append(quotes, quote{ex: ex, p: p, q: q})
+			for _, a := range ob.Asks {
+				p, err1 := strconv.ParseFloat(a.Price, 64)
+				q, err2 := strconv.ParseFloat(a.Quantity, 64)
+				if err1 != nil || err2 != nil || p <= 0 || q <= 0 {
+					continue
+				}
+				all = append(all, level{ex: ex, price: p, qty: q})
+			}
 		}
-	}
-	if len(quotes) == 0 {
-		return res
-	}
+		sort.Slice(all, func(i, j int) bool { return all[i].price < all[j].price })
 
-	if in.Direction == Buy {
-		sort.Slice(quotes, func(i, j int) bool { return quotes[i].p < quotes[j].p })
-		budget := in.Amount
-		for _, qu := range quotes {
-			if budget <= 0 {
+		remainBudget := in.Amount
+		for _, lv := range all {
+			if remainBudget <= 0 {
 				break
 			}
-			f := in.Fees[qu.ex]
-			// максимум gross на этот шаг:
-			grossCap := f.InvertBuy(budget)
-			// можно взять q по цене p, но не больше grossCap
-			maxQtyByGross := grossCap / qu.p
-			take := min(qu.q, maxQtyByGross)
-			if take <= 0 {
+			maxCost := lv.price * lv.qty
+			if maxCost <= remainBudget {
+				add(lv.ex, lv.price, lv.qty)
+				remainBudget -= maxCost
+			} else {
+				q := remainBudget / lv.price
+				if q > 0 {
+					add(lv.ex, lv.price, q)
+					remainBudget = 0
+				}
+				break
+			}
+		}
+		res.Leftover = in.Amount - res.TotalUSDT
+		res.Asset = in.Right
+
+	case Sell:
+		type level struct {
+			ex    string
+			price float64
+			qty   float64
+		}
+		var all []level
+		for ex, ob := range in.OrderBooks {
+			if ob == nil {
 				continue
 			}
-			gross := take * qu.p
-			net, fee := f.ApplyBuy(gross)
-
-			res.Legs = append(res.Legs, Leg{Exchange: qu.ex, Price: net / take, Qty: take, AmountUSDT: net, FeeUSDT: fee})
-			res.TotalQty += take
-			res.TotalUSDT += net
-			budget -= net
+			for _, b := range ob.Bids {
+				p, err1 := strconv.ParseFloat(b.Price, 64)
+				q, err2 := strconv.ParseFloat(b.Quantity, 64)
+				if err1 != nil || err2 != nil || p <= 0 || q <= 0 {
+					continue
+				}
+				all = append(all, level{ex: ex, price: p, qty: q})
+			}
 		}
-		res.AveragePrice = safeDiv(res.TotalUSDT, res.TotalQty)
-		res.Asset = in.Right
-		res.Leftover = max(0, budget)
 
-	} else { // SELL
-		sort.Slice(quotes, func(i, j int) bool { return quotes[i].p > quotes[j].p })
+		sort.Slice(all, func(i, j int) bool { return all[i].price > all[j].price })
+
 		remainQty := in.Amount
-		for _, qu := range quotes {
+		for _, lv := range all {
 			if remainQty <= 0 {
 				break
 			}
-			take := min(qu.q, remainQty)
-			if take <= 0 {
-				continue
+			if lv.qty <= remainQty {
+				add(lv.ex, lv.price, lv.qty)
+				remainQty -= lv.qty
+			} else {
+				add(lv.ex, lv.price, remainQty)
+				remainQty = 0
+				break
 			}
-			f := in.Fees[qu.ex]
-			gross := take * qu.p
-			net, fee := f.ApplySell(gross)
-
-			res.Legs = append(res.Legs, Leg{Exchange: qu.ex, Price: net / take, Qty: take, AmountUSDT: net, FeeUSDT: fee})
-			res.TotalQty += take
-			res.TotalUSDT += net
-			remainQty -= take
 		}
-		res.AveragePrice = safeDiv(res.TotalUSDT, res.TotalQty)
-		res.Asset = in.Symbol[:len(in.Symbol)-4]
+		// Для SELL Asset — левая часть символа (без суффикса USDT)
+		if len(in.Symbol) > 4 {
+			res.Asset = in.Symbol[:len(in.Symbol)-4]
+		} else {
+			res.Asset = in.Symbol
+		}
+	default:
+		return res
 	}
 
+	// Цена в ноге — средневзвешенная (usdt/qty)
+	type exName struct{ name string }
+	var keys []exName
+	for ex := range legsByEx {
+		keys = append(keys, exName{name: ex})
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].name < keys[j].name })
+
+	for _, k := range keys {
+		l := legsByEx[k.name]
+		if l == nil || l.qty <= 0 {
+			continue
+		}
+		avg := l.usdt / l.qty
+		res.Legs = append(res.Legs, Leg{
+			Exchange:   k.name,
+			Price:      avg,
+			Qty:        l.qty,
+			AmountUSDT: l.usdt,
+		})
+	}
+
+	if res.TotalQty > 0 {
+		res.AveragePrice = res.TotalUSDT / res.TotalQty
+	}
 	return res
-}
-
-func parseFloat(s string) (float64, bool) {
-	v, err := strconv.ParseFloat(s, 64)
-	return v, err == nil
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-func max(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-func safeDiv(a, b float64) float64 {
-	if b == 0 {
-		return 0
-	}
-	return a / b
 }
