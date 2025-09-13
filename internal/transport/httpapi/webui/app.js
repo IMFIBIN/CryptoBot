@@ -88,6 +88,12 @@ function setLang(lang){
     if (health && !health.classList.contains('bad')) {
         health.textContent = dict[lang].serverOK;
     }
+
+    // синхронизируем футер (если есть)
+    const fs = $('footer-status');
+    if (fs && !health?.classList.contains('bad')) {
+        fs.textContent = dict[lang].serverOK;
+    }
 }
 
 /* ========== Format helpers ========== */
@@ -111,6 +117,17 @@ const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU'
 const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
 
+/* ========== Footer helpers (добавлено ранее) ========== */
+function updateFooterStatus(ok) {
+    const el = $('footer-status');
+    if (!el) return;
+    el.textContent = ok ? dict[currentLang].serverOK : dict[currentLang].serverFail;
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const y = $('footer-year');
+    if (y) y.textContent = new Date().getFullYear();
+});
+
 /* ========== Backend helpers ========== */
 async function checkHealth() {
     const node = $('health');
@@ -120,9 +137,11 @@ async function checkHealth() {
         const j = await r.json();
         node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
         node.classList.remove('muted', 'bad');
+        updateFooterStatus(Boolean(j?.status)); // синхронизация футера
     } catch {
         node.textContent = dict[currentLang].serverFail;
         node.classList.add('bad');
+        updateFooterStatus(false); // синхронизация футера
     }
 }
 
@@ -195,7 +214,6 @@ function buildSummaryHTML(j){
   `;
 }
 
-
 function buildAllocationHTML(j){
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
@@ -251,8 +269,8 @@ function buildScenarioPanel(j){
 /* ========== Boot ========== */
 document.addEventListener('DOMContentLoaded', () => {
     // init lang toggle
-    $('btn-en').addEventListener('click', () => setLang('en'));
-    $('btn-ru').addEventListener('click', () => setLang('ru'));
+    $('btn-en')?.addEventListener('click', () => setLang('en'));
+    $('btn-ru')?.addEventListener('click', () => setLang('ru'));
     setLang(currentLang);
 
     checkHealth();

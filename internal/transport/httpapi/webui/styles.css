@@ -114,3 +114,47 @@ tfoot th{
     #plan-form label{ width:120px; }
     .grid-2{ grid-template-columns:1fr; }
 }
+
+/* ===== Footer ===== */
+.footer {
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    margin-top: 24px;
+}
+.footer__inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.footer__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.footer__brand {
+    font-weight: 700;
+}
+.footer__meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--muted);
+}
+.footer .dot { opacity: .6; }
+.footer__desc {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+.footer__desc a {
+    color: var(--accent);
+    text-decoration: none;
+}
+.footer__desc a:hover { text-decoration: underline; }

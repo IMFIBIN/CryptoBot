@@ -1,20 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CryptoBot — Scenarios Test</title>
     <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
 </head>
 <body>
+
 <header>
-    <h1>CryptoBot — Scenarios Test</h1>
+    <h1>OTC Calculate</h1>
     <div id="health" class="muted">Checking server…</div>
 
     <!-- Переключатель языка -->
     <div id="lang-toggle">
-        <button type="button" id="btn-en" class="lang-btn active">EN</button> |
-        <button type="button" id="btn-ru" class="lang-btn">RU</button>
+        <button type="button" id="btn-en" class="lang-btn">EN</button> |
+        <button type="button" id="btn-ru" class="lang-btn active">RU</button>
     </div>
 </header>
 
@@ -27,23 +29,43 @@
 
         <div class="row">
             <label for="quote" id="lbl-pay">Pay</label>
-            <input id="quote" value="USDT" readonly class="readonly-input" />
+            <select id="quote"></select>
         </div>
 
         <div class="row">
             <label for="amount" id="lbl-spend">Spend</label>
-            <input id="amount" type="text" inputmode="numeric" autocomplete="off" value="1.000.000" />
+            <input id="amount" type="text" inputmode="numeric" autocomplete="off" value="1000000" />
         </div>
-
-        <!-- Строка выбора сценария удалена -->
 
         <button id="calc-btn" type="submit">Calculate</button>
     </form>
 
-    <!-- Здесь будут рендериться 3 сценария -->
-    <section id="comparisons"></section>
+    <!-- Контейнер для результатов трёх сценариев -->
+    <div id="comparisons"></div>
 </main>
 
-<script src="app.js"></script>
+<!-- ===== Footer ===== -->
+<footer class="footer" id="site-footer">
+    <div class="footer__inner">
+
+        <div class="footer__desc">
+            <p><strong>OTC CalculateBot</strong> — это сервис, который помогает определить оптимальные стратегии обмена крупных сумм денег. Он анализирует возможности получения выгоды при распределении средств между биржами, вместо того чтобы вкладывать всё в одну платформу. В расчётах учитываются только рыночные ордера.</p>
+            <p>Чтобы ещё повысить эффективность, можно использовать лимитные ордера. Если вам необходим такой функционал, мы готовы разработать и интегрировать его в вашу систему.</p>
+            <p><strong>Для связи:</strong> <a href="https://t.me/oreshkinalexey" target="_blank" rel="noopener noreferrer">https://t.me/oreshkinalexey</a></p>
+        </div>
+
+        <div class="footer__top">
+            <div class="footer__brand">OTC Calculate</div>
+            <div class="footer__meta">
+                <span id="footer-status">Checking server…</span>
+                <span class="dot">•</span>
+                <span>© <span id="footer-year"></span></span>
+            </div>
+        </div>
+
+
+    </div>
+</footer>
+
 </body>
 </html>

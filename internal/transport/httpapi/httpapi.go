@@ -130,11 +130,14 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 
 // только USDT как quote; base-список без USDT
 func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(SymbolsResponse{
-		Bases:  []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"},
-		Quotes: []string{"USDT"},
-	})
+	bases := []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"}
+	quotes := []string{"USDT"} // теперь USDT всегда в списке
+
+	resp := map[string]any{
+		"bases":  bases,
+		"quotes": quotes,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func withCORS(next http.Handler) http.Handler {
