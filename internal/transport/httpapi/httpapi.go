@@ -85,14 +85,10 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	req.Base = strings.ToUpper(strings.TrimSpace(req.Base))
 	req.Quote = strings.ToUpper(strings.TrimSpace(req.Quote))
 	req.Scenario = strings.TrimSpace(req.Scenario)
-	if req.Scenario == "" {
-		req.Scenario = "optimal"
-	}
-	if req.Depth <= 0 {
-		req.Depth = 100
-	}
+	// ВАЖНО: Depth не трогаем! (0 = безлимит для фетчеров)
+	// if req.Depth <= 0 { req.Depth = 100 }  // ← ЭТУ СТРОКУ МЫ УДАЛИЛИ
 
-	// Валидация входа — вместо возврата пустого ответа возвращаем 400 + error
+	// Валидация
 	if req.Base == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "base is required"})
@@ -119,26 +115,13 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Таймаут на расчёт
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	res, err := s.flow.Plan(ctx, req)
 	if err != nil {
-		code := http.StatusInternalServerError
-		msg := err.Error()
-		low := strings.ToLower(msg)
-		if strings.Contains(low, "timeout") {
-			code = http.StatusGatewayTimeout
-		} else if strings.Contains(low, "unsupported") ||
-			strings.Contains(low, "amount must") ||
-			strings.Contains(low, "no order books") {
-			// ошибки бизнес-валидации → 400
-			code = http.StatusBadRequest
-		}
-
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
 		return
 	}
 
@@ -147,11 +130,14 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 
 // только USDT как quote; base-список без USDT
 func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(SymbolsResponse{
-		Bases:  []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"},
-		Quotes: []string{"USDT"},
-	})
+	bases := []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"}
+	quotes := []string{"USDT"} // теперь USDT всегда в списке
+
+	resp := map[string]any{
+		"bases":  bases,
+		"quotes": quotes,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func withCORS(next http.Handler) http.Handler {
