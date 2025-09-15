@@ -1,3 +1,46 @@
 ssh -i ~/.ssh/otccalc_ed25519 admin@89.111.171.43
 https://otccalculate.ru/
 go run ./cmd/web
+
+----Деплой----
+_______________________________________
+
+# 1) Чистая сборка
+rm -rf build && mkdir -p build/web build/webui
+
+# 2) Проверим зависимости (необязательно, но полезно)
+go mod tidy
+
+# 3) (опционально) Прогон тестов
+go test ./...
+
+# 4) Собираем релизный бинарник под сервер (Ubuntu x86_64)
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+go build -trimpath -ldflags="-s -w" -o build/web/web ./cmd/web
+
+# 5) Скопируем актуальные файлы фронта в сборку
+rsync -a --delete internal/transport/httpapi/webui/ build/webui/
+
+_______________________________________
+
+# Заливаем новый бинарник как web.new (чтобы без даунтайма при копировании)
+rsync -avz --progress build/web/web \
+  admin@89.111.171.43:/home/admin/otccalc/web.new
+
+# Заливаем статические файлы фронта (очищаем лишнее на сервере)
+rsync -avz --delete --progress build/webui/ \
+  admin@89.111.171.43:/home/admin/otccalc/webui/
+
+________________________________________
+
+ssh -i ~/.ssh/otccalc_ed25519 admin@89.111.171.43
+----------------------------------------
+cd /home/admin/otccalc
+----------------------------------------
+mv web web.old && mv web.new web
+----------------------------------------
+sudo systemctl restart otccalc
+----------------------------------------
+sudo systemctl status otccalc
+
+_________________________________________
