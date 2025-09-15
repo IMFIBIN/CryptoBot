@@ -14,17 +14,16 @@ type PlanLeg struct {
 }
 
 type PlanResponse struct {
+	Scenario    string    `json:"scenario"`
 	Base        string    `json:"base"`
 	Quote       string    `json:"quote"`
-	Amount      float64   `json:"amount"`
-	Scenario    string    `json:"scenario"`
 	VWAP        float64   `json:"vwap"`
 	TotalCost   float64   `json:"totalCost"`
 	Unspent     float64   `json:"unspent"`
 	Legs        []PlanLeg `json:"legs"`
 	GeneratedAt string    `json:"generatedAt"`
-	Generated   float64
-	Diagnostics []string
+	Generated   float64   `json:"generated"` // <-- добавили тэг
+	Diagnostics []string  `json:"diagnostics"`
 }
 
 type SymbolsResponse struct {

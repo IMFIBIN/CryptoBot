@@ -246,7 +246,7 @@ function buildSummaryHTML(j){
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
-        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.quote || ''}</div>
+       <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
         ${unspentBlock}
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
