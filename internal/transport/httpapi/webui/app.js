@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-/* ========== i18n ========== */
+/* ========== i18n (минимально необходимый набор фраз) ========== */
 const dict = {
     en: {
         buy: 'Buy',
@@ -13,9 +13,8 @@ const dict = {
         serverFail: 'Server is unreachable',
         pair: 'Pair',
         receive: 'Receive',
-        unspent: 'Unspent (not used due to orderbook depth)',
+        unspent: 'Unspent (orderbook depth limit)',
         currentTime: 'Current time',
-        scenario2: 'Scenario',
         spendLabel: 'Spend',
         avgPrice: 'Average execution price',
         assetsNoFees: 'Assets cost (no fees)',
@@ -35,18 +34,17 @@ const dict = {
     },
     ru: {
         buy: 'Купить',
-        pay: 'Оплатить',
-        spend: 'Сумма',
+        pay: 'Оплачивать',
+        spend: 'Потратить',
         calculate: 'Рассчитать',
         summary: 'Результат',
         allocation: 'Распределение',
-        serverOK: 'Сервер: OK',
-        serverFail: 'Сервер недоступен',
+        serverOK: 'Сервер работает',
+        serverFail: 'Сервер не отвечает',
         pair: 'Пара',
         receive: 'Получите',
-        unspent: 'Не израсходовано (из-за глубины стакана)',
+        unspent: 'Не израсходовано (ограничение глубины)',
         currentTime: 'Текущее время',
-        scenario2: 'Сценарий',
         spendLabel: 'Затраты',
         avgPrice: 'Средняя цена исполнения',
         assetsNoFees: 'Стоимость активов (без комиссий)',
@@ -66,38 +64,37 @@ const dict = {
     }
 };
 
-let currentLang = localStorage.getItem('lang') || 'en';
+let currentLang = localStorage.getItem('lang') || 'ru';
 
 function setLang(lang){
     currentLang = lang;
     localStorage.setItem('lang', lang);
 
-    // toggle button highlight
-    document.querySelectorAll('#lang-toggle .lang-btn').forEach(btn=>{
+    // Подсветка кнопок языка (если есть)
+    document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn=>{
         btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
 
-    // form labels
-    $('lbl-buy').textContent = dict[lang].buy;
-    $('lbl-pay').textContent = dict[lang].pay;
-    $('lbl-spend').textContent = dict[lang].spend;
-    $('calc-btn').textContent = dict[lang].calculate;
+    // Лейблы формы (если есть такие элементы)
+    $('lbl-buy')  && ($('lbl-buy').textContent  = dict[lang].buy);
+    $('lbl-pay')  && ($('lbl-pay').textContent  = dict[lang].pay);
+    $('lbl-spend')&& ($('lbl-spend').textContent= dict[lang].spend);
+    $('calc-btn') && ($('calc-btn').textContent = dict[lang].calculate);
 
-    // обновим health надпись, если не bad
+    // Health-надпись, если сервер ОК
     const health = $('health');
     if (health && !health.classList.contains('bad')) {
         health.textContent = dict[lang].serverOK;
     }
-
-    // синхронизируем футер (если есть)
+    // Футер
     const fs = $('footer-status');
     if (fs && !health?.classList.contains('bad')) {
         fs.textContent = dict[lang].serverOK;
     }
 }
 
-/* ========== Format helpers ========== */
-// Разделитель тысяч — точка (1.000.000)
+/* ========== Форматирование ========== */
+// 1 000 000 → "1.000.000"
 const formatThousandsDots = (digits) =>
     digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
@@ -107,47 +104,52 @@ const parseThousandsDots = (val) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-const moneyUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qtyBASE   = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 6, maximumFractionDigits: 6 });
-const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const moneyUSDT = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+);
+const qtyBASE   = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 6, maximumFractionDigits: 6 }
+);
+const priceUSDT = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+);
 
 const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
 
-/* ========== Footer helpers (добавлено ранее) ========== */
+/* ========== Footer helpers ========== */
 function updateFooterStatus(ok) {
     const el = $('footer-status');
     if (!el) return;
     el.textContent = ok ? dict[currentLang].serverOK : dict[currentLang].serverFail;
 }
-document.addEventListener('DOMContentLoaded', () => {
-    const y = $('footer-year');
-    if (y) y.textContent = new Date().getFullYear();
-});
 
-/* ========== Backend helpers ========== */
+/* ========== Health ========== */
 async function checkHealth() {
     const node = $('health');
+    if (!node) return;
     try {
         const r = await fetch('/api/health', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
-        node.classList.remove('muted', 'bad');
-        updateFooterStatus(Boolean(j?.status)); // синхронизация футера
+        node.classList.toggle('bad', !j?.status);
+        updateFooterStatus(Boolean(j?.status));
     } catch {
         node.textContent = dict[currentLang].serverFail;
         node.classList.add('bad');
-        updateFooterStatus(false); // синхронизация футера
+        updateFooterStatus(false);
     }
 }
 
+/* ========== Symbols ========== */
 async function loadSymbols() {
-    const baseSel = $('base');
+    const baseSel  = $('base');
     const quoteSel = $('quote');
+    if (!baseSel || !quoteSel) return;
 
     try {
         const r = await fetch('/api/symbols', { cache: 'no-store' });
@@ -155,31 +157,76 @@ async function loadSymbols() {
         const j = await r.json();
 
         const bases  = Array.isArray(j?.bases)  ? j.bases  : [];
-        const quotes = Array.isArray(j?.quotes) ? j.quotes : [];
+        let   quotes = Array.isArray(j?.quotes) ? j.quotes : [];
 
-        baseSel.innerHTML  = bases.map(b => `<option value="${b}">${b}</option>`).join('');
-        quoteSel.value = (quotes.includes('USDT') ? 'USDT' : (quotes[0] || 'USDT'));
+        if (!quotes.length) quotes = bases.slice();
+
+        baseSel.innerHTML  = bases.map(b  => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.innerHTML = quotes.map(q => `<option value="${q}">${q}</option>`).join('');
+
+        // дефолт для "Оплатить": USDT если есть
+        if (quotes.includes('USDT')) quoteSel.value = 'USDT';
+        else quoteSel.selectedIndex = 0;
     } catch {
-        baseSel.innerHTML  = ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT']
-            .map(b => `<option value="${b}">${b}</option>`).join('');
+        const fallback = ['USDT','BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT'];
+        baseSel.innerHTML  = fallback.map(b => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.innerHTML = fallback.map(q => `<option value="${q}">${q}</option>`).join('');
         quoteSel.value = 'USDT';
     }
 }
 
-/* ========== Rendering (HTML builders) ========== */
-function scenarioTitle(code){ return dict[currentLang][code] || code; }
+/* ========== UI: карточки и разметка ========== */
+function scenarioTitle(s) {
+    const t = dict[currentLang];
+    if (s === 'best_single') return t.best_single;
+    if (s === 'equal_split') return t.equal_split;
+    if (s === 'optimal')     return t.optimal;
+    return s || '';
+}
 
 function buildSummaryHTML(j){
-    const legs = Array.isArray(j.legs) ? j.legs : [];
-    const received = sumAmount(legs);
-    const assetsNoFees = Number(j.totalCost || 0) - Number(j.totalFees || 0);
-
     const t = dict[currentLang];
-    const unspentBlock = (Number(j.unspent || 0) > 0.0000001)
-        ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
-        : '';
 
-    // описания для сценариев
+    const baseU  = String(j.base  || '').toUpperCase();
+    const quoteU = String(j.quote || '').toUpperCase();
+
+    const legs = Array.isArray(j.legs) ? j.legs : [];
+    // Важно: "получено" берём из server-side поля `generated`
+    const received = Number(j.generated || 0);
+
+    const bothNotUsdt = (baseU !== 'USDT' && quoteU !== 'USDT'); // маршрут монета→монета
+    const isUsdtQuote = (quoteU === 'USDT');
+
+    // Средняя цена:
+    // - если quote=USDT → показываем USDT за 1 BASE
+    // - если монета→монета → показываем BASE за 1 QUOTE (эффективная)
+    const avgVal   = Number(j.vwap || 0);
+    const avgNum   = isUsdtQuote ? priceUSDT(avgVal) : qtyBASE(avgVal);
+    const avgUnits = isUsdtQuote ? `${t.usdt} ${t.per} ${j.base || ''}` : `${baseU}/${quoteU}`;
+
+    // Сколько "затрачено": берём фактический totalCost от сервера.
+    // Единицы:
+    //   - USDT→монета: показываем в USDT
+    //   - монета→монета: показываем в базовой монете
+    const spentVal   = Number(j.totalCost ?? j.amount ?? 0);
+    const spendNum   = bothNotUsdt ? qtyBASE(spentVal) : moneyUSDT(spentVal);
+    const spendUnits = bothNotUsdt ? (j.base || '') : t.usdt;
+
+    // Не израсходовано
+    const unspentVal = Number(j.unspent || 0);
+    const unspentStr = bothNotUsdt ? `${qtyBASE(unspentVal)} ${j.base || ''}`
+        : `${moneyUSDT(unspentVal)} ${t.usdt}`;
+    const unspentBlock = (unspentVal > 0.0000001)
+        ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
+
+    // Стоимость без комиссий и итого к оплате — в тех же единицах, что и "Затраты"
+    const assetsNoFeesVal = Number(j.totalCost || 0) - Number(j.totalFees || 0);
+    const assetsNoFeesNum = bothNotUsdt ? qtyBASE(assetsNoFeesVal) : moneyUSDT(assetsNoFeesVal);
+    const totalToPayNum   = bothNotUsdt ? qtyBASE(Number(j.totalCost || 0))
+        : moneyUSDT(Number(j.totalCost || 0));
+    const unitStr = spendUnits;
+
+    // Описание сценария
     const descriptions = {
         best_single: currentLang === 'ru'
             ? 'Вся сумма уходит на одну биржу с наилучшей ценой'
@@ -188,10 +235,9 @@ function buildSummaryHTML(j){
             ? 'Сумма делится равными частями между всеми биржами'
             : 'Funds are split equally across all exchanges',
         optimal: currentLang === 'ru'
-            ? 'Сумма распределяется оптимально между биржами для минимальной цены исполнения'
-            : 'Funds are distributed optimally across exchanges for the best execution price'
+            ? 'Сумма распределяется оптимально между биржами для лучшей цены'
+            : 'Funds are distributed optimally across exchanges for best execution',
     };
-
     const descr = descriptions[j.scenario] || '';
 
     return `
@@ -200,15 +246,15 @@ function buildSummaryHTML(j){
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
-        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
+        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.quote || ''}</div>
         ${unspentBlock}
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
       <div>
-        <div><strong>${t.spendLabel}:</strong> ${moneyUSDT(j.amount || 0)} ${t.usdt}</div>
-        <div><strong>${t.avgPrice}:</strong> ${priceUSDT(j.vwap || 0)} ${t.usdt} ${t.per} ${j.base || ''}</div>
-        <div><strong>${t.assetsNoFees}:</strong> ${moneyUSDT(assetsNoFees)} ${t.usdt}</div>
-        <div><strong>${t.totalToPay}:</strong> ${moneyUSDT(j.totalCost || 0)} ${t.usdt}</div>
+        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
+        <div><strong>${t.avgPrice}:</strong> ${avgNum} ${avgUnits}</div>
+        <div><strong>${t.assetsNoFees}:</strong> ${assetsNoFeesNum} ${unitStr}</div>
+        <div><strong>${t.totalToPay}:</strong> ${totalToPayNum} ${unitStr}</div>
       </div>
     </div>
   `;
@@ -234,14 +280,13 @@ function buildAllocationHTML(j){
     }).join('');
 
     const t = dict[currentLang];
-
     return `
     <h2>${t.allocation}</h2>
-    <table>
+    <table class="grid-table">
       <thead>
         <tr>
           <th>${t.exchange}</th>
-          <th class="num">${t.amountCol} (${j.base || '-'})</th>
+          <th class="num">${t.amountCol} (${j.base || '-'}/${j.quote || '-'})</th>
           <th class="num">${t.priceCol} (${t.usdt}/${j.base || '-'})</th>
         </tr>
       </thead>
@@ -266,39 +311,44 @@ function buildScenarioPanel(j){
   `;
 }
 
-/* ========== Boot ========== */
+/* ========== Инициализация ========== */
 document.addEventListener('DOMContentLoaded', () => {
-    // init lang toggle
+    // Год в футере
+    const y = $('footer-year');
+    if (y) y.textContent = new Date().getFullYear();
+
+    // Язык
+    setLang(currentLang);
     $('btn-en')?.addEventListener('click', () => setLang('en'));
     $('btn-ru')?.addEventListener('click', () => setLang('ru'));
-    setLang(currentLang);
 
-    checkHealth();
-    loadSymbols();
-
-    // Маска разделения тысяч (1.000.000)
-    const amt = $('amount');
-    if (amt) {
-        amt.value = formatThousandsDots(String(amt.value || ''));
-        amt.addEventListener('input', () => {
-            amt.value = formatThousandsDots(amt.value);
-            amt.setSelectionRange(amt.value.length, amt.value.length);
-        });
-        amt.addEventListener('blur', () => {
-            amt.value = formatThousandsDots(amt.value);
+    // Форматирование инпута суммы: "точки" как разделители тысяч
+    const amountInput = $('amount');
+    if (amountInput) {
+        amountInput.addEventListener('input', (e) => {
+            const caret = e.target.selectionStart;
+            const digits = e.target.value.replace(/\./g, '');
+            e.target.value = formatThousandsDots(digits);
+            // карет можно не восстанавливать идеально — достаточно не прыгать в начало
+            e.target.selectionStart = e.target.selectionEnd = Math.min(caret + 1, e.target.value.length);
         });
     }
 
+    // Первичные запросы
+    checkHealth();
+    loadSymbols();
+
+    // Сабмит формы
     const form = $('plan-form');
     const cmp  = $('comparisons'); // контейнер для 3 сценариев
     const btn  = $('calc-btn');
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!btn) return;
+        if (!btn || !cmp) return;
         btn.disabled = true;
 
-        const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
+        const base  = $('base')?.value?.trim().toUpperCase()  || 'BTC';
         const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
         const amount = parseThousandsDots($('amount')?.value || '0');
 
@@ -314,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetch('/api/plan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: reqBody(scenario)
+                    body: reqBody(scenario),
                 }).then(async r => {
                     const text = await r.text();
                     if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
@@ -325,12 +375,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const results = await Promise.all(scenarios.map(fetchOne));
 
-            // отрисовка: заголовок + три панели
+            // заголовок + три панели
             const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
             cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
-
         } catch (err) {
-            cmp.innerHTML = `<section class="card"><h2>Error</h2><pre>${String(err)}</pre></section>`;
+            cmp.innerHTML = `<section class="card"><h2>Error</h2><pre style="white-space:pre-wrap">${String(err)}</pre></section>`;
         } finally {
             btn.disabled = false;
         }

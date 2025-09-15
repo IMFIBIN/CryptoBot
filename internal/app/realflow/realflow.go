@@ -639,7 +639,6 @@ func greedySellCoin(books []book, amountCoin float64) (perEx map[string]float64,
 // ------------------ MAIN PLAN ------------------
 
 func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.PlanResponse, error) {
-	// Базовая защита: если вдруг хэндлер пропустит плохие данные — не вернём пустышку
 	if strings.TrimSpace(req.Base) == "" || strings.TrimSpace(req.Quote) == "" {
 		return httpapi.PlanResponse{}, fmt.Errorf("unsupported pair selection")
 	}
@@ -647,13 +646,12 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 		return httpapi.PlanResponse{}, fmt.Errorf("amount must be > 0")
 	}
 
-	// ВСЕГДА максимальная глубина: 0 => «максимум» в fetchers
 	depth := 0
 
 	isUSDT := func(s string) bool { return strings.EqualFold(s, "USDT") }
-	sideBuy := !isUSDT(req.Base) && isUSDT(req.Quote)    // монета за USDT (amount в USDT)
-	sideSell := isUSDT(req.Base) && !isUSDT(req.Quote)   // продажа монеты за USDT (amount в монете)
-	sideRoute := !isUSDT(req.Base) && !isUSDT(req.Quote) // coinA -> USDT -> coinB
+	sideBuy := !isUSDT(req.Base) && isUSDT(req.Quote)
+	sideSell := isUSDT(req.Base) && !isUSDT(req.Quote)
+	sideRoute := !isUSDT(req.Base) && !isUSDT(req.Quote)
 
 	var legs []httpapi.PlanLeg
 	var vwap, total, unspent float64
@@ -732,8 +730,71 @@ func (rf *RealFlow) Plan(ctx context.Context, req httpapi.PlanRequest) (httpapi.
 		}
 
 	case sideRoute:
-		// Сложный маршрут A->USDT->B — не реализован в этой версии
-		return httpapi.PlanResponse{}, fmt.Errorf("unsupported pair selection")
+		booksBase, diags1 := rf.fetchAll(ctx, req.Base, depth)
+		if len(booksBase) == 0 {
+			return httpapi.PlanResponse{}, fmt.Errorf("no order books on BASE leg (%s)", strings.Join(diags1, "; "))
+		}
+		amountBase := req.Amount
+		perExSell, _, usdProceeds, soldBase := greedySellCoin(booksBase, amountBase)
+
+		// Собираем ножки по продаже (цены — лучшие bid)
+		priceBid := map[string]float64{}
+		for _, b := range booksBase {
+			if len(b.Bids) > 0 {
+				priceBid[b.Exchange] = b.Bids[0].Price
+			}
+		}
+		for _, b := range booksBase {
+			q := perExSell[b.Exchange]
+			if q > 0 {
+				legs = append(legs, httpapi.PlanLeg{
+					Exchange: b.Exchange,
+					Amount:   q,
+					Price:    priceBid[b.Exchange],
+				})
+			}
+		}
+
+		if usdProceeds <= 0 || soldBase <= 0 {
+			return httpapi.PlanResponse{}, fmt.Errorf("insufficient depth on BASE->USDT leg")
+		}
+
+		booksQuote, diags2 := rf.fetchAll(ctx, req.Quote, depth)
+		if len(booksQuote) == 0 {
+			return httpapi.PlanResponse{}, fmt.Errorf("no order books on USDT->QUOTE leg (%s)", strings.Join(diags2, "; "))
+		}
+
+		perExBuy, _, usdSpent := greedyBuyUSD(booksQuote, usdProceeds)
+
+		var gotQuote float64
+		priceAsk := map[string]float64{}
+		for _, b := range booksQuote {
+			if len(b.Asks) > 0 {
+				priceAsk[b.Exchange] = b.Asks[0].Price
+			}
+		}
+		for _, b := range booksQuote {
+			q := perExBuy[b.Exchange]
+			if q > 0 {
+				gotQuote += q
+				legs = append(legs, httpapi.PlanLeg{
+					Exchange: b.Exchange,
+					Amount:   q,
+					Price:    priceAsk[b.Exchange],
+				})
+			}
+		}
+
+		if gotQuote <= 0 || usdSpent <= 0 {
+			return httpapi.PlanResponse{}, fmt.Errorf("insufficient depth on USDT->QUOTE leg")
+		}
+
+		vwap = roundCents(soldBase / gotQuote)
+		total = roundCents(soldBase)
+		unspent = roundCents(req.Amount - soldBase)
+		if unspent < 0 {
+			unspent = 0
+		}
 
 	default:
 		return httpapi.PlanResponse{}, fmt.Errorf("unsupported pair selection")
