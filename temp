@@ -1,3 +1,0 @@
-ssh -i ~/.ssh/otccalc_ed25519 admin@89.111.171.43
-https://otccalculate.ru/
-go run ./cmd/web

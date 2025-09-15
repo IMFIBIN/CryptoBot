@@ -1,342 +1,338 @@
-// === i18n (EN/RU) ===
-const I18N = {
+const $ = (id) => document.getElementById(id);
+
+/* ========== i18n ========== */
+const dict = {
     en: {
         buy: 'Buy',
         pay: 'Pay',
         spend: 'Spend',
         calculate: 'Calculate',
-        scenarioOptions: {
-            best_single: 'Best single',
-            equal_split: 'Equal split',
-            optimal: 'Optimal',
-        },
-        checkingServer: 'Checking server…',
-        serverOK: 'Server is up',
-        serverFail: 'Server is not responding',
-        resultTitle: 'Plan result',
-        legsTitle: 'Execution legs',
-        summaryTitle: 'Summary',
-        allocationTitle: 'Allocation',
-        intro: {
-            best_single: 'All funds go to the single exchange with the best price',
-            equal_split: 'Funds are split equally across all exchanges',
-            optimal: 'Funds are allocated optimally across exchanges',
-        },
+        summary: 'Summary',
+        allocation: 'Allocation',
+        serverOK: 'Server: OK',
+        serverFail: 'Server is unreachable',
         pair: 'Pair',
         receive: 'Receive',
+        unspent: 'Unspent (not used due to orderbook depth)',
         currentTime: 'Current time',
+        scenario2: 'Scenario',
         spendLabel: 'Spend',
-        avgExecPrice: 'Average execution price',
-        assetsCost: 'Assets cost',
+        avgPrice: 'Average execution price',
+        assetsNoFees: 'Assets cost (no fees)',
+        fees: 'Fees',
         totalToPay: 'Total to pay',
-        fUnspent: 'Unspent',
-        fGenerated: 'Generated',
-        thExchange: 'Exchange',
-        thAmountUnit: 'Amount ({unit})',
-        thPriceUnit: 'Price ({quote}/{base})',
+        exchange: 'Exchange',
+        amountCol: 'Amount',
+        priceCol: 'Price',
+        total: 'Total',
+        per: 'per 1',
+        best_single: 'Best single',
+        equal_split: 'Equal split',
+        optimal: 'Optimal',
+        usdt: 'USDT',
+        calculating: 'Calculating…',
         resultsFor: 'Results for',
-        errBadAmount: 'Enter a valid amount',
-        errRequest: 'Request failed',
     },
     ru: {
         buy: 'Купить',
-        pay: 'Отдаёте',
+        pay: 'Оплатить',
         spend: 'Сумма',
         calculate: 'Рассчитать',
-        scenarioOptions: {
-            best_single: 'Самая выгодная биржа',
-            equal_split: 'Равное распределение средств по биржам',
-            optimal: 'Лучшее распределение средств',
-        },
-        checkingServer: 'Проверяем сервер…',
-        serverOK: 'Сервер работает',
-        serverFail: 'Сервер не отвечает',
-        resultTitle: 'Результат',
-        legsTitle: 'Сделки',
-        summaryTitle: 'Сводка',
-        allocationTitle: 'Распределение',
-        intro: {
-            best_single: 'Все средства на одну биржу с лучшей ценой',
-            equal_split: 'Средства поровну распределены по биржам',
-            optimal: 'Средства распределены оптимально по биржам',
-        },
+        summary: 'Результат',
+        allocation: 'Распределение',
+        serverOK: 'Сервер: OK',
+        serverFail: 'Сервер недоступен',
         pair: 'Пара',
         receive: 'Получите',
+        unspent: 'Не израсходовано (из-за глубины стакана)',
         currentTime: 'Текущее время',
-        spendLabel: 'Потратить',
-        avgExecPrice: 'Средняя цена исполнения',
-        assetsCost: 'Стоимость актива',
+        scenario2: 'Сценарий',
+        spendLabel: 'Затраты',
+        avgPrice: 'Средняя цена исполнения',
+        assetsNoFees: 'Стоимость активов (без комиссий)',
+        fees: 'Комиссии',
         totalToPay: 'Итого к оплате',
-        fUnspent: 'Остаток',
-        fGenerated: 'Сгенерировано',
-        thExchange: 'Биржа',
-        thAmountUnit: 'Количество ({unit})',
-        thPriceUnit: 'Цена ({quote}/{base})',
+        exchange: 'Биржа',
+        amountCol: 'Количество',
+        priceCol: 'Цена',
+        total: 'Итого',
+        per: 'за 1',
+        best_single: 'Лучшая одиночная',
+        equal_split: 'Равное распределение',
+        optimal: 'Оптимально',
+        usdt: 'USDT',
+        calculating: 'Расчёт…',
         resultsFor: 'Результаты для',
-        errBadAmount: 'Введите корректную сумму',
-        errRequest: 'Ошибка запроса',
     }
 };
 
-let lastResponse = null; // для перерисовки после смены языка
+let currentLang = localStorage.getItem('lang') || 'en';
 
-function getSavedLang() {
-    const ls = localStorage.getItem('lang');
-    if (ls === 'ru' || ls === 'en') return ls;
-    return (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
-}
-
-function setLang(lang) {
-    const dict = I18N[lang] || I18N.en;
-    document.documentElement.lang = lang;
-
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        if (dict[key]) el.textContent = dict[key];
-    });
-
-    const sel = document.getElementById('scenario');
-    if (sel) {
-        [...sel.options].forEach(o => {
-            const v = o.value;
-            if (dict.scenarioOptions[v]) o.textContent = dict.scenarioOptions[v];
-        });
-    }
-
-    const btn = document.getElementById('langBtn');
-    if (btn) btn.textContent = (lang === 'en') ? 'RU' : 'EN';
-
-    const health = document.getElementById('health');
-    if (health && (health.dataset.state === 'checking')) {
-        health.textContent = dict.checkingServer;
-    }
-
-    if (lastResponse) {
-        renderResult(lastResponse);
-    }
-
+function setLang(lang){
+    currentLang = lang;
     localStorage.setItem('lang', lang);
-}
 
-function toggleLang() {
-    const cur = document.documentElement.lang || getSavedLang();
-    setLang(cur === 'ru' ? 'en' : 'ru');
-}
-
-// === утилиты ===
-const byId = (id) => document.getElementById(id);
-
-function currentLocale() {
-    const l = document.documentElement.lang || 'en';
-    return l === 'ru' ? 'ru-RU' : 'en-US';
-}
-
-function parseNumber(str) {
-    if (typeof str !== 'string') return NaN;
-    const s = str.replace(/\s+/g, '').replace(/,/g, '.');
-    return Number(s);
-}
-
-function fmt2(x) {
-    if (!isFinite(x)) return '—';
-    return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 2 }).format(x);
-}
-
-function fmt8(x) {
-    if (!isFinite(x)) return '—';
-    return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 8 }).format(x);
-}
-
-async function apiGet(url) {
-    const r = await fetch(url, { credentials: 'same-origin' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-}
-
-async function apiPost(url, body) {
-    const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(body),
+    // toggle button highlight
+    document.querySelectorAll('#lang-toggle .lang-btn').forEach(btn=>{
+        btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
-    if (!r.ok) {
-        const text = await r.text().catch(() => '');
-        throw new Error(`HTTP ${r.status} ${text}`);
+
+    // form labels
+    $('lbl-buy').textContent = dict[lang].buy;
+    $('lbl-pay').textContent = dict[lang].pay;
+    $('lbl-spend').textContent = dict[lang].spend;
+    $('calc-btn').textContent = dict[lang].calculate;
+
+    // обновим health надпись, если не bad
+    const health = $('health');
+    if (health && !health.classList.contains('bad')) {
+        health.textContent = dict[lang].serverOK;
     }
-    return r.json();
+
+    // синхронизируем футер (если есть)
+    const fs = $('footer-status');
+    if (fs && !health?.classList.contains('bad')) {
+        fs.textContent = dict[lang].serverOK;
+    }
 }
 
-// === логика страницы ===
+/* ========== Format helpers ========== */
+// Разделитель тысяч — точка (1.000.000)
+const formatThousandsDots = (digits) =>
+    digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+const parseThousandsDots = (val) => {
+    const digits = String(val || '').replace(/\./g, '').replace(/\s/g, '');
+    const n = parseInt(digits, 10);
+    return Number.isFinite(n) ? n : 0;
+};
+
+const moneyUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtyBASE   = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
+    .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
+
+/* ========== Footer helpers (добавлено ранее) ========== */
+function updateFooterStatus(ok) {
+    const el = $('footer-status');
+    if (!el) return;
+    el.textContent = ok ? dict[currentLang].serverOK : dict[currentLang].serverFail;
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const y = $('footer-year');
+    if (y) y.textContent = new Date().getFullYear();
+});
+
+/* ========== Backend helpers ========== */
 async function checkHealth() {
-    const health = byId('health');
-    const dict = I18N[document.documentElement.lang] || I18N.en;
-    health.dataset.state = 'checking';
-    health.textContent = dict.checkingServer;
-
+    const node = $('health');
     try {
-        await apiGet('/api/health');
-        health.textContent = dict.serverOK;
-        health.classList.remove('bad');
-    } catch (e) {
-        health.textContent = dict.serverFail;
-        health.classList.add('bad');
-    } finally {
-        delete health.dataset.state;
-    }
-}
-
-function fillSelectWithCoins(select, coins) {
-    select.innerHTML = '';
-    for (const s of coins) {
-        const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = s;
-        select.appendChild(opt);
+        const r = await fetch('/api/health', { cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
+        node.classList.remove('muted', 'bad');
+        updateFooterStatus(Boolean(j?.status)); // синхронизация футера
+    } catch {
+        node.textContent = dict[currentLang].serverFail;
+        node.classList.add('bad');
+        updateFooterStatus(false); // синхронизация футера
     }
 }
 
 async function loadSymbols() {
-    const baseSel = byId('base');
-    const paySel = byId('pay');
+    const baseSel = $('base');
+    const quoteSel = $('quote');
 
     try {
-        const data = await apiGet('/api/symbols');
-        let bases = [];
-        if (Array.isArray(data)) bases = data;
-        else if (Array.isArray(data.bases)) bases = data.bases;
-        else if (Array.isArray(data.base)) bases = data.base;
-        else if (Array.isArray(data.symbols)) bases = data.symbols;
+        const r = await fetch('/api/symbols', { cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
 
-        if (!bases || bases.length === 0) {
-            bases = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']; // fallback
-        }
+        const bases  = Array.isArray(j?.bases)  ? j.bases  : [];
+        const quotes = Array.isArray(j?.quotes) ? j.quotes : [];
 
-        const coins = Array.from(new Set(['USDT', ...bases]));
-        fillSelectWithCoins(baseSel, coins);
-        fillSelectWithCoins(paySel, coins);
-
-        baseSel.value = 'BTC';
-        paySel.value = 'USDT';
-    } catch (e) {
-        const coins = ['USDT', 'BTC', 'ETH', 'BNB', 'ADA', 'SOL'];
-        fillSelectWithCoins(baseSel, coins);
-        fillSelectWithCoins(paySel, coins);
-        baseSel.value = 'BTC';
-        paySel.value = 'USDT';
+        baseSel.innerHTML  = bases.map(b => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.value = (quotes.includes('USDT') ? 'USDT' : (quotes[0] || 'USDT'));
+    } catch {
+        baseSel.innerHTML  = ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT']
+            .map(b => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.value = 'USDT';
     }
 }
 
-function renderResult(resp) {
-    lastResponse = resp;
-    const result = byId('result');
-    const legs = byId('legs');
-    const dict = I18N[document.documentElement.lang] || I18N.en;
+/* ========== Rendering (HTML builders) ========== */
+function scenarioTitle(code){ return dict[currentLang][code] || code; }
 
-    result.classList.remove('hidden');
-    legs.classList.remove('hidden');
+function buildSummaryHTML(j){
+    const legs = Array.isArray(j.legs) ? j.legs : [];
+    const received = sumAmount(legs);
+    const assetsNoFees = Number(j.totalCost || 0) - Number(j.totalFees || 0);
 
-    const scenarioLabel = dict.scenarioOptions[resp.scenario] || resp.scenario;
-    const introText = (dict.intro && dict.intro[resp.scenario]) ? dict.intro[resp.scenario] : '';
+    const t = dict[currentLang];
+    const unspentBlock = (Number(j.unspent || 0) > 0.0000001)
+        ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
+        : '';
 
-    const thAmountUnit = (dict.thAmountUnit || '{unit}').replace('{unit}', resp.base);
-    const thPriceUnit = (dict.thPriceUnit || '{quote}/{base}')
-        .replace('{quote}', resp.quote)
-        .replace('{base}', resp.base);
+    // описания для сценариев
+    const descriptions = {
+        best_single: currentLang === 'ru'
+            ? 'Вся сумма уходит на одну биржу с наилучшей ценой'
+            : 'All funds go to the single exchange with the best price',
+        equal_split: currentLang === 'ru'
+            ? 'Сумма делится равными частями между всеми биржами'
+            : 'Funds are split equally across all exchanges',
+        optimal: currentLang === 'ru'
+            ? 'Сумма распределяется оптимально между биржами для минимальной цены исполнения'
+            : 'Funds are distributed optimally across exchanges for the best execution price'
+    };
 
-    result.innerHTML = `
-    <h2>${dict.summaryTitle} — ${scenarioLabel}</h2>
-    ${introText ? `<div class="muted">${introText}</div>` : ''}
-    <div class="kv">
-      <div><span>${dict.pair}</span><b>${resp.base}/${resp.quote}</b></div>
-      <div><span>${dict.spendLabel}</span><b>${fmt2(resp.amount)} ${resp.quote}</b></div>
-      <div><span>${dict.receive}</span><b>${fmt8(resp.totalQty || 0)} ${resp.base}</b></div>
-      <div><span>${dict.avgExecPrice}</span><b>${fmt8(resp.vwap)} ${resp.quote}/${resp.base}</b></div>
-      <div><span>${dict.assetsCost}</span><b>${fmt2(resp.totalCost)} ${resp.quote}</b></div>
-      <div><span>${dict.totalToPay}</span><b>${fmt2(resp.totalCost)} ${resp.quote}</b></div>
-      <div><span>${dict.fUnspent}</span><b>${fmt2(resp.unspent)} ${resp.quote}</b></div>
-      <div><span>${dict.currentTime}</span><b>${resp.generatedAt || ''}</b></div>
-    </div>
-  `;
+    const descr = descriptions[j.scenario] || '';
 
-    const rows = (resp.legs || []).map(l => `
-    <tr>
-      <td>${l.exchange}</td>
-      <td class="num">${fmt8(l.amount)}</td>
-      <td class="num">${fmt8(l.price)}</td>
-    </tr>
-  `).join('');
-
-    legs.innerHTML = `
-    <h2>${dict.allocationTitle}</h2>
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>${dict.thExchange}</th>
-            <th>${thAmountUnit}</th>
-            <th>${thPriceUnit}</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+    return `
+    <h2>${t.summary} — ${scenarioTitle(j.scenario || '')}</h2>
+    <p class="muted" style="margin-top:-6px;margin-bottom:12px;">${descr}</p>
+    <div class="grid-2">
+      <div>
+        <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
+        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
+        ${unspentBlock}
+        <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
+      </div>
+      <div>
+        <div><strong>${t.spendLabel}:</strong> ${moneyUSDT(j.amount || 0)} ${t.usdt}</div>
+        <div><strong>${t.avgPrice}:</strong> ${priceUSDT(j.vwap || 0)} ${t.usdt} ${t.per} ${j.base || ''}</div>
+        <div><strong>${t.assetsNoFees}:</strong> ${moneyUSDT(assetsNoFees)} ${t.usdt}</div>
+        <div><strong>${t.totalToPay}:</strong> ${moneyUSDT(j.totalCost || 0)} ${t.usdt}</div>
+      </div>
     </div>
   `;
 }
 
-function showError(err) {
-    lastResponse = null;
-    const result = byId('result');
-    const legs = byId('legs');
-    const dict = I18N[document.documentElement.lang] || I18N.en;
+function buildAllocationHTML(j){
+    const legs = Array.isArray(j.legs) ? j.legs : [];
 
-    result.classList.remove('hidden');
-    legs.classList.add('hidden');
+    let bestIdx = -1, worstIdx = -1;
+    legs.forEach((l, i) => {
+        if (typeof l?.price !== 'number' || !isFinite(l.price)) return;
+        if (bestIdx === -1 || l.price < legs[bestIdx].price) bestIdx = i;
+        if (worstIdx === -1 || l.price > legs[worstIdx].price) worstIdx = i;
+    });
 
-    result.innerHTML = `
-    <h2>${dict.resultTitle}</h2>
-    <div class="error">${dict.errRequest}: ${String(err && err.message || err)}</div>
+    const rows = legs.map((l, i) => {
+        const cls = i === bestIdx ? 'best-row' : i === worstIdx ? 'worst-row' : '';
+        return `<tr class="${cls}">
+      <td>${l.exchange || '-'}</td>
+      <td class="num">${qtyBASE(l.amount || 0)}</td>
+      <td class="num">${priceUSDT(l.price || 0)}</td>
+    </tr>`;
+    }).join('');
+
+    const t = dict[currentLang];
+
+    return `
+    <h2>${t.allocation}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>${t.exchange}</th>
+          <th class="num">${t.amountCol} (${j.base || '-'})</th>
+          <th class="num">${t.priceCol} (${t.usdt}/${j.base || '-'})</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr>
+          <th>${t.total}</th>
+          <th class="num">${qtyBASE(sumAmount(legs))}</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
   `;
 }
 
-async function onSubmit(e) {
-    e.preventDefault();
-    const dict = I18N[document.documentElement.lang] || I18N.en;
-
-    const buy = byId('base').value;
-    const pay = byId('pay').value;
-    const amount = parseNumber(byId('amount').value);
-    const scenario = byId('scenario').value;
-
-    if (!isFinite(amount) || amount <= 0) {
-        alert(dict.errBadAmount);
-        return;
-    }
-    if (buy === pay) {
-        alert('Buy and Pay must be different');
-        return;
-    }
-
-    const payload = { base: buy, quote: pay, amount, scenario };
-
-    byId('calc-btn').disabled = true;
-
-    try {
-        const resp = await apiPost('/api/plan', payload);
-        renderResult(resp);
-    } catch (err) {
-        showError(err);
-    } finally {
-        byId('calc-btn').disabled = false;
-    }
+function buildScenarioPanel(j){
+    return `
+    <section class="card">
+      ${buildSummaryHTML(j)}
+      ${buildAllocationHTML(j)}
+    </section>
+  `;
 }
 
+/* ========== Boot ========== */
 document.addEventListener('DOMContentLoaded', () => {
-    setLang(getSavedLang());
-    const btn = byId('langBtn');
-    if (btn) btn.addEventListener('click', toggleLang);
+    // init lang toggle
+    $('btn-en')?.addEventListener('click', () => setLang('en'));
+    $('btn-ru')?.addEventListener('click', () => setLang('ru'));
+    setLang(currentLang);
 
     checkHealth();
     loadSymbols();
-    byId('plan-form').addEventListener('submit', onSubmit);
+
+    // Маска разделения тысяч (1.000.000)
+    const amt = $('amount');
+    if (amt) {
+        amt.value = formatThousandsDots(String(amt.value || ''));
+        amt.addEventListener('input', () => {
+            amt.value = formatThousandsDots(amt.value);
+            amt.setSelectionRange(amt.value.length, amt.value.length);
+        });
+        amt.addEventListener('blur', () => {
+            amt.value = formatThousandsDots(amt.value);
+        });
+    }
+
+    const form = $('plan-form');
+    const cmp  = $('comparisons'); // контейнер для 3 сценариев
+    const btn  = $('calc-btn');
+
+    form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!btn) return;
+        btn.disabled = true;
+
+        const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
+        const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
+        const amount = parseThousandsDots($('amount')?.value || '0');
+
+        // Прелоадер
+        cmp.innerHTML = `<section class="card"><div class="muted">${dict[currentLang].calculating}</div></section>`;
+
+        const scenarios = ['best_single', 'equal_split', 'optimal'];
+
+        try {
+            // параллельно считаем все сценарии
+            const reqBody = (scenario) => JSON.stringify({ base, quote, amount, scenario });
+            const fetchOne = (scenario) =>
+                fetch('/api/plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: reqBody(scenario)
+                }).then(async r => {
+                    const text = await r.text();
+                    if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
+                    const j = JSON.parse(text);
+                    if (j && j.error) throw new Error(j.error);
+                    return j;
+                });
+
+            const results = await Promise.all(scenarios.map(fetchOne));
+
+            // отрисовка: заголовок + три панели
+            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
+            cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
+
+        } catch (err) {
+            cmp.innerHTML = `<section class="card"><h2>Error</h2><pre>${String(err)}</pre></section>`;
+        } finally {
+            btn.disabled = false;
+        }
+    });
 });

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -85,10 +86,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	req.Base = strings.ToUpper(strings.TrimSpace(req.Base))
 	req.Quote = strings.ToUpper(strings.TrimSpace(req.Quote))
 	req.Scenario = strings.TrimSpace(req.Scenario)
-	// ВАЖНО: Depth не трогаем! (0 = безлимит для фетчеров)
-	// if req.Depth <= 0 { req.Depth = 100 }  // ← ЭТУ СТРОКУ МЫ УДАЛИЛИ
 
-	// Валидация
 	if req.Base == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "base is required"})
@@ -99,14 +97,9 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "quote is required"})
 		return
 	}
-	if req.Quote != "USDT" {
+	if strings.EqualFold(req.Base, req.Quote) {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "only USDT quote is supported"})
-		return
-	}
-	if strings.EqualFold(req.Base, "USDT") {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "base must not be USDT"})
+		_ = json.NewEncoder(w).Encode(ErrorResponse{Error: "Нельзя выбирать одинаковые монеты (выберите разные в полях «Отдаёте» и «Получаете»)."})
 		return
 	}
 	if req.Amount <= 0 {
@@ -128,16 +121,39 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(res)
 }
 
-// только USDT как quote; base-список без USDT
 func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
-	bases := []string{"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT"}
-	quotes := []string{"USDT"} // теперь USDT всегда в списке
+	w.Header().Set("Content-Type", "application/json")
+
+	all := []string{
+		"USDT",
+		"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TON", "TRX", "DOT",
+	}
+
+	all = uniqStrings(all)
+	sort.Strings(all)
 
 	resp := map[string]any{
-		"bases":  bases,
-		"quotes": quotes,
+		"bases":  all,
+		"quotes": all,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func uniqStrings(xs []string) []string {
+	seen := make(map[string]struct{}, len(xs))
+	out := make([]string, 0, len(xs))
+	for _, v := range xs {
+		v = strings.ToUpper(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 func withCORS(next http.Handler) http.Handler {
