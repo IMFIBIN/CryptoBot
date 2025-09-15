@@ -23,6 +23,8 @@ type PlanResponse struct {
 	Unspent     float64   `json:"unspent"`
 	Legs        []PlanLeg `json:"legs"`
 	GeneratedAt string    `json:"generatedAt"`
+	Generated   float64
+	Diagnostics []string
 }
 
 type SymbolsResponse struct {
