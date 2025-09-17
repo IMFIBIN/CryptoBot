@@ -171,8 +171,10 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 			return Result{}, fmt.Errorf("insufficient depth on USDT->BASE leg")
 		}
 
-		// Итоги (важно: цена = QUOTE за 1 BASE)
-		res.VWAP = round2(soldQuote / gotBase)      // QUOTE/BASE
+		// Итоги (для пары монета/монета показываем BASE за 1 QUOTE)
+		// Продаём QUOTE → получаем USDT; покупаем BASE за USDT.
+		// Эффективный кросс-курс BASE/QUOTE = (получено BASE) / (потрачено QUOTE).
+		res.VWAP = round2(gotBase / soldQuote)      // BASE/QUOTE
 		res.TotalCost = round2(soldQuote)           // потратили QUOTE
 		res.Unspent = round2(in.Amount - soldQuote) // остаток QUOTE
 		if res.Unspent < 0 {
@@ -181,7 +183,8 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		res.Generated = gotBase
 
 		// Склеиваем ножки: сначала продажа (QUOTE), затем покупка (BASE)
-		res.Legs = append(toPlanLegs(outSell.Legs), toPlanLegs(outBuy.Legs)...)
+		res.Legs = toPlanLegs(outBuy.Legs)
+
 	}
 
 	return res, nil
