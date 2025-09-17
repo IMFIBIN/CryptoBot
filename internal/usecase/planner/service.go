@@ -95,7 +95,7 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		res.Generated = out.TotalQty          // получили BASE
 		res.Legs = toPlanLegs(out.Legs)       // Qty — это BASE на ножке
 
-	// === Продажа QUOTE за USDT ===
+	// === Продажа QUOTE за USDT (покупаем USDT за монету) ===
 	case isUSDT(base) && !isUSDT(quote):
 		books, diags, err := s.repo.FetchAllBooks(ctx, quote, depth)
 		if err != nil {
@@ -115,15 +115,16 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		out := runScenario.Run(inp)
 
 		// Для SELL сценарии обычно не выставляют Leftover, поэтому считаем остаток сами
-		sold := out.TotalQty                   // реально продали QUOTE
-		res.VWAP = round2(out.AveragePrice)    // USDT за 1 QUOTE
-		res.TotalCost = round2(out.TotalUSDT)  // получили USDT
+		sold := out.TotalQty                // реально продали QUOTE (в валюте оплаты)
+		res.VWAP = round2(out.AveragePrice) // USDT за 1 QUOTE
+		// ВАЖНО: TotalCost должен быть в валюте оплаты (QUOTE), а не в USDT.
+		res.TotalCost = round2(sold)           // потратили QUOTE
 		res.Unspent = round2(in.Amount - sold) // не успели продать QUOTE
 		if res.Unspent < 0 {
 			res.Unspent = 0
 		}
-		res.Generated = out.TotalUSDT   // получили USDT
-		res.Legs = toPlanLegs(out.Legs) // Qty — это QUOTE на ножке
+		res.Generated = out.TotalUSDT   // получили USDT (база)
+		res.Legs = toPlanLegs(out.Legs) // ножки продажи QUOTE -> USDT
 
 	// === Маршрут через USDT: QUOTE -> USDT -> BASE ===
 	case !isUSDT(base) && !isUSDT(quote):
@@ -182,9 +183,8 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		}
 		res.Generated = gotBase
 
-		// Склеиваем ножки: сначала продажа (QUOTE), затем покупка (BASE)
+		// В распределении показываем только покупку USDT->BASE (ножки продажи скрываем)
 		res.Legs = toPlanLegs(outBuy.Legs)
-
 	}
 
 	return res, nil
@@ -226,7 +226,7 @@ func toPlanLegs(src []scenario.Leg) []Leg {
 	for _, l := range src {
 		legs = append(legs, Leg{
 			Exchange: l.Exchange,
-			Amount:   l.Qty,   // Qty монеты на ножке
+			Amount:   l.Qty,   // Qty монеты на ножке (при base=USDT фронт пересчитает в USDT)
 			Price:    l.Price, // цена (USDT/монета)
 		})
 	}
