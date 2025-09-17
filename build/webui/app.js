@@ -1,6 +1,5 @@
 const $ = (id) => document.getElementById(id);
 
-/* ========== i18n ========== */
 const dict = {
     en: {
         buy: 'Buy',
@@ -13,13 +12,11 @@ const dict = {
         serverFail: 'Server is unreachable',
         pair: 'Pair',
         receive: 'Receive',
-        unspent: 'Unspent (not used due to orderbook depth)',
+        unspent: 'Unspent (orderbook depth limit)',
         currentTime: 'Current time',
-        scenario2: 'Scenario',
         spendLabel: 'Spend',
         avgPrice: 'Average execution price',
-        assetsNoFees: 'Assets cost (no fees)',
-        fees: 'Fees',
+        assetsNoFees: 'Assets cost',
         totalToPay: 'Total to pay',
         exchange: 'Exchange',
         amountCol: 'Amount',
@@ -35,22 +32,20 @@ const dict = {
     },
     ru: {
         buy: 'Купить',
-        pay: 'Оплатить',
-        spend: 'Сумма',
+        pay: 'Оплачивать',
+        spend: 'Потратить',
         calculate: 'Рассчитать',
         summary: 'Результат',
         allocation: 'Распределение',
-        serverOK: 'Сервер: OK',
-        serverFail: 'Сервер недоступен',
+        serverOK: 'Сервер работает',
+        serverFail: 'Сервер не отвечает',
         pair: 'Пара',
         receive: 'Получите',
-        unspent: 'Не израсходовано (из-за глубины стакана)',
+        unspent: 'Не израсходовано (ограничение глубины)',
         currentTime: 'Текущее время',
-        scenario2: 'Сценарий',
         spendLabel: 'Затраты',
         avgPrice: 'Средняя цена исполнения',
-        assetsNoFees: 'Стоимость активов (без комиссий)',
-        fees: 'Комиссии',
+        assetsNoFees: 'Стоимость активов',
         totalToPay: 'Итого к оплате',
         exchange: 'Биржа',
         amountCol: 'Количество',
@@ -66,120 +61,149 @@ const dict = {
     }
 };
 
-let currentLang = localStorage.getItem('lang') || 'en';
-
+let currentLang = localStorage.getItem('lang') || 'ru';
 function setLang(lang){
     currentLang = lang;
     localStorage.setItem('lang', lang);
-
-    // toggle button highlight
-    document.querySelectorAll('#lang-toggle .lang-btn').forEach(btn=>{
+    document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn=>{
         btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
-
-    // form labels
-    $('lbl-buy').textContent = dict[lang].buy;
-    $('lbl-pay').textContent = dict[lang].pay;
-    $('lbl-spend').textContent = dict[lang].spend;
-    $('calc-btn').textContent = dict[lang].calculate;
-
-    // обновим health надпись, если не bad
+    $('lbl-buy')   && ($('lbl-buy').textContent   = dict[lang].buy);
+    $('lbl-pay')   && ($('lbl-pay').textContent   = dict[lang].pay);
+    $('lbl-spend') && ($('lbl-spend').textContent = dict[lang].spend);
+    $('calc-btn')  && ($('calc-btn').textContent  = dict[lang].calculate);
     const health = $('health');
-    if (health && !health.classList.contains('bad')) {
-        health.textContent = dict[lang].serverOK;
-    }
-
-    // синхронизируем футер (если есть)
+    if (health && !health.classList.contains('bad')) health.textContent = dict[lang].serverOK;
     const fs = $('footer-status');
-    if (fs && !health?.classList.contains('bad')) {
-        fs.textContent = dict[lang].serverOK;
-    }
+    if (fs && !health?.classList.contains('bad')) fs.textContent = dict[lang].serverOK;
 }
 
-/* ========== Format helpers ========== */
-// Разделитель тысяч — точка (1.000.000)
+const moneyUSDT = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+);
+const qtyBASE = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 6, maximumFractionDigits: 6 }
+);
+const priceUSDT = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+);
+
+function trimZerosTail(str){
+    return str.replace(/([,.]\d*?)0+$/,'$1').replace(/[,.]$/,'');
+}
+function qtyCOINTerse(n){
+    return trimZerosTail(qtyBASE(n));
+}
+
+function sumBaseAmount(legs, base, quote){
+    const baseU = String(base||'').toUpperCase();
+    const quoteU= String(quote||'').toUpperCase();
+    return (Array.isArray(legs)?legs:[]).reduce((s,l)=> s + Number(
+        baseU === 'USDT'
+            ? (l.usdt ?? l.amountUSDT ?? (Number(l.amount||0)*Number(l.price||0)))
+            : (l.amount || 0)
+    ), 0);
+}
+
 const formatThousandsDots = (digits) =>
     digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-
 const parseThousandsDots = (val) => {
     const digits = String(val || '').replace(/\./g, '').replace(/\s/g, '');
     const n = parseInt(digits, 10);
     return Number.isFinite(n) ? n : 0;
 };
 
-const moneyUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qtyBASE   = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 6, maximumFractionDigits: 6 });
-const priceUSDT = (n) => Number(n).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
-    .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
-
-/* ========== Footer helpers (добавлено ранее) ========== */
 function updateFooterStatus(ok) {
     const el = $('footer-status');
     if (!el) return;
     el.textContent = ok ? dict[currentLang].serverOK : dict[currentLang].serverFail;
 }
-document.addEventListener('DOMContentLoaded', () => {
-    const y = $('footer-year');
-    if (y) y.textContent = new Date().getFullYear();
-});
 
-/* ========== Backend helpers ========== */
 async function checkHealth() {
     const node = $('health');
+    if (!node) return;
     try {
         const r = await fetch('/api/health', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
-        node.classList.remove('muted', 'bad');
-        updateFooterStatus(Boolean(j?.status)); // синхронизация футера
+        node.classList.toggle('bad', !j?.status);
+        updateFooterStatus(Boolean(j?.status));
     } catch {
         node.textContent = dict[currentLang].serverFail;
         node.classList.add('bad');
-        updateFooterStatus(false); // синхронизация футера
+        updateFooterStatus(false);
     }
 }
 
 async function loadSymbols() {
-    const baseSel = $('base');
+    const baseSel  = $('base');
     const quoteSel = $('quote');
-
+    if (!baseSel || !quoteSel) return;
     try {
         const r = await fetch('/api/symbols', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
-
         const bases  = Array.isArray(j?.bases)  ? j.bases  : [];
-        const quotes = Array.isArray(j?.quotes) ? j.quotes : [];
-
-        baseSel.innerHTML  = bases.map(b => `<option value="${b}">${b}</option>`).join('');
-        quoteSel.value = (quotes.includes('USDT') ? 'USDT' : (quotes[0] || 'USDT'));
+        let quotes   = Array.isArray(j?.quotes) ? j.quotes : [];
+        if (!quotes.length) quotes = bases.slice();
+        baseSel.innerHTML  = bases.map(b  => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.innerHTML = quotes.map(q => `<option value="${q}">${q}</option>`).join('');
+        if (quotes.includes('USDT')) quoteSel.value = 'USDT'; else quoteSel.selectedIndex = 0;
     } catch {
-        baseSel.innerHTML  = ['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT']
-            .map(b => `<option value="${b}">${b}</option>`).join('');
+        const fallback = ['USDT','BTC','ETH','BNB','SOL','XRP','ADA','DOGE','TON','TRX','DOT'];
+        baseSel.innerHTML  = fallback.map(b => `<option value="${b}">${b}</option>`).join('');
+        quoteSel.innerHTML = fallback.map(q => `<option value="${q}">${q}</option>`).join('');
         quoteSel.value = 'USDT';
     }
 }
 
-/* ========== Rendering (HTML builders) ========== */
-function scenarioTitle(code){ return dict[currentLang][code] || code; }
+function scenarioTitle(s) {
+    const t = dict[currentLang];
+    if (s === 'best_single') return t.best_single;
+    if (s === 'equal_split') return t.equal_split;
+    if (s === 'optimal')     return t.optimal;
+    return s || '';
+}
 
 function buildSummaryHTML(j){
-    const legs = Array.isArray(j.legs) ? j.legs : [];
-    const received = sumAmount(legs);
-    const assetsNoFees = Number(j.totalCost || 0) - Number(j.totalFees || 0);
-
     const t = dict[currentLang];
-    const unspentBlock = (Number(j.unspent || 0) > 0.0000001)
-        ? `<div><strong>${t.unspent}:</strong> ${moneyUSDT(j.unspent || 0)} ${t.usdt}</div>`
-        : '';
+    const baseU  = String(j.base  || '').toUpperCase();
+    const quoteU = String(j.quote || '').toUpperCase();
 
-    // описания для сценариев
+    const pairHasUSDT = (baseU === 'USDT') || (quoteU === 'USDT');
+    const pairBase = pairHasUSDT
+        ? (baseU === 'USDT' ? (j.quote || '') : (j.base || ''))
+        : (j.base || '');
+    const pairQuote = pairHasUSDT ? 'USDT' : (j.quote || '');
+
+    const received = Number(j.generated || 0);
+    const isQuoteUSDT = (quoteU === 'USDT');
+
+    const avgVal   = Number(j.vwap || 0);
+    const avgNum   = priceUSDT(avgVal);
+    const avgUnits = `USDT ${t.per} ${pairBase}`;
+
+    const spentVal   = Number(j.totalCost ?? j.amount ?? 0);
+    const spendNum   = isQuoteUSDT ? moneyUSDT(spentVal) : qtyCOINTerse(spentVal);
+    const spendUnits = j.quote || '';
+
+    const unspentVal = Number(j.unspent || 0);
+    const unspentStr = isQuoteUSDT
+        ? `${moneyUSDT(unspentVal)} ${t.usdt}`
+        : `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
+    const unspentBlock = (unspentVal > 0.0000001)
+        ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
+
+    const assetsNoFeesVal = Number(j.totalCost || 0) - Number(j.totalFees || 0);
+    const assetsNoFeesNum = isQuoteUSDT ? moneyUSDT(assetsNoFeesVal) : qtyCOINTerse(assetsNoFeesVal);
+    const assetsUnitStr   = spendUnits;
+    const totalToPayNum   = isQuoteUSDT ? moneyUSDT(Number(j.totalCost || 0)) : qtyCOINTerse(Number(j.totalCost || 0));
+    const unitStr = spendUnits;
+
     const descriptions = {
         best_single: currentLang === 'ru'
             ? 'Вся сумма уходит на одну биржу с наилучшей ценой'
@@ -188,10 +212,9 @@ function buildSummaryHTML(j){
             ? 'Сумма делится равными частями между всеми биржами'
             : 'Funds are split equally across all exchanges',
         optimal: currentLang === 'ru'
-            ? 'Сумма распределяется оптимально между биржами для минимальной цены исполнения'
-            : 'Funds are distributed optimally across exchanges for the best execution price'
+            ? 'Сумма распределяется оптимально между биржами для лучшей цены'
+            : 'Funds are distributed optimally across exchanges for best execution',
     };
-
     const descr = descriptions[j.scenario] || '';
 
     return `
@@ -199,22 +222,36 @@ function buildSummaryHTML(j){
     <p class="muted" style="margin-top:-6px;margin-bottom:12px;">${descr}</p>
     <div class="grid-2">
       <div>
-        <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
+        <div><strong>${t.pair}:</strong> ${pairBase || '-'} / ${pairQuote || '-'}</div>
         <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
         ${unspentBlock}
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
       <div>
-        <div><strong>${t.spendLabel}:</strong> ${moneyUSDT(j.amount || 0)} ${t.usdt}</div>
-        <div><strong>${t.avgPrice}:</strong> ${priceUSDT(j.vwap || 0)} ${t.usdt} ${t.per} ${j.base || ''}</div>
-        <div><strong>${t.assetsNoFees}:</strong> ${moneyUSDT(assetsNoFees)} ${t.usdt}</div>
-        <div><strong>${t.totalToPay}:</strong> ${moneyUSDT(j.totalCost || 0)} ${t.usdt}</div>
+        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
+        <div><strong>${t.avgPrice}:</strong> ${avgNum} ${avgUnits}</div>
+        <div><strong>${t.assetsNoFees}:</strong> ${assetsNoFeesNum} ${assetsUnitStr}</div>
+        <div><strong>${t.totalToPay}:</strong> ${totalToPayNum} ${unitStr}</div>
       </div>
     </div>
   `;
 }
 
 function buildAllocationHTML(j){
+    const t = dict[currentLang];
+    const baseU  = String(j.base  || '').toUpperCase();
+    const quoteU = String(j.quote || '').toUpperCase();
+
+    const legBaseAmount = (l) => {
+        if (baseU === 'USDT') {
+            const u = (l && (l.usdt ?? l.amountUSDT));
+            if (typeof u !== 'undefined') return Number(u || 0);
+            return Number(l.amount || 0) * Number(l.price || 0);
+        }
+        return Number(l.amount || 0);
+    };
+    const fmtAmountBase = (n) => baseU === 'USDT' ? moneyUSDT(n) : qtyBASE(n);
+
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
     let bestIdx = -1, worstIdx = -1;
@@ -228,33 +265,53 @@ function buildAllocationHTML(j){
         const cls = i === bestIdx ? 'best-row' : i === worstIdx ? 'worst-row' : '';
         return `<tr class="${cls}">
       <td>${l.exchange || '-'}</td>
-      <td class="num">${qtyBASE(l.amount || 0)}</td>
+      <td class="num">${fmtAmountBase(legBaseAmount(l))}</td>
       <td class="num">${priceUSDT(l.price || 0)}</td>
     </tr>`;
     }).join('');
 
-    const t = dict[currentLang];
+    const priceHeader = (() => {
+        const label = currentLang==='ru' ? 'Цена (USDT за 1 ' : 'Price (USDT per 1 ';
+        if (quoteU === 'USDT') return `${label}${j.base || '-'})`;
+        if (baseU  === 'USDT') return `${label}${j.quote || '-'})`;
+        return `${label}${j.base || '-'})`;
+    })();
+
+    const amountHeader = `${t.amountCol} (${j.base || '-'})`;
+
+    const bothNotUsdt = (baseU !== 'USDT' && quoteU !== 'USDT');
+    const viaUsdtNote = bothNotUsdt
+        ? `<div class="muted" style="margin:6px 0 10px 0;">
+        ${currentLang==='ru'
+            ? `Маршрут через USDT: продаём ${j.quote || ''} → USDT, затем покупаем ${j.base || ''} за USDT`
+            : `Routed via USDT: sell ${j.quote || ''} → USDT, then buy ${j.base || ''} for USDT`}
+       </div>`
+        : '';
+
+    const totalBase = sumBaseAmount(legs, baseU, quoteU);
 
     return `
-    <h2>${t.allocation}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>${t.exchange}</th>
-          <th class="num">${t.amountCol} (${j.base || '-'})</th>
-          <th class="num">${t.priceCol} (${t.usdt}/${j.base || '-'})</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
+  <h2>${t.allocation}</h2>
+  ${viaUsdtNote}
+  <table class="grid-table">
+    <thead>
+      <tr>
+        <th>${t.exchange}</th>
+        <th class="num">${amountHeader}</th>
+        <th class="num">${priceHeader}</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    ${j.scenario === 'best_single' ? '' : `
       <tfoot>
         <tr>
           <th>${t.total}</th>
-          <th class="num">${qtyBASE(sumAmount(legs))}</th>
+          <th class="num">${fmtAmountBase(totalBase)}</th>
           <th></th>
         </tr>
-      </tfoot>
-    </table>
-  `;
+      </tfoot>`}
+  </table>
+`;
 }
 
 function buildScenarioPanel(j){
@@ -266,55 +323,48 @@ function buildScenarioPanel(j){
   `;
 }
 
-/* ========== Boot ========== */
 document.addEventListener('DOMContentLoaded', () => {
-    // init lang toggle
+    const y = $('footer-year'); if (y) y.textContent = new Date().getFullYear();
+
+    setLang(currentLang);
     $('btn-en')?.addEventListener('click', () => setLang('en'));
     $('btn-ru')?.addEventListener('click', () => setLang('ru'));
-    setLang(currentLang);
+
+    const amountInput = $('amount');
+    if (amountInput) {
+        amountInput.addEventListener('input', (e) => {
+            const caret = e.target.selectionStart;
+            const digits = e.target.value.replace(/\./g, '');
+            e.target.value = formatThousandsDots(digits);
+            e.target.selectionStart = e.target.selectionEnd = Math.min(caret + 1, e.target.value.length);
+        });
+    }
 
     checkHealth();
     loadSymbols();
 
-    // Маска разделения тысяч (1.000.000)
-    const amt = $('amount');
-    if (amt) {
-        amt.value = formatThousandsDots(String(amt.value || ''));
-        amt.addEventListener('input', () => {
-            amt.value = formatThousandsDots(amt.value);
-            amt.setSelectionRange(amt.value.length, amt.value.length);
-        });
-        amt.addEventListener('blur', () => {
-            amt.value = formatThousandsDots(amt.value);
-        });
-    }
-
     const form = $('plan-form');
-    const cmp  = $('comparisons'); // контейнер для 3 сценариев
+    const cmp  = $('comparisons');
     const btn  = $('calc-btn');
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!btn) return;
+        if (!btn || !cmp) return;
         btn.disabled = true;
 
-        const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
+        const base  = $('base')?.value?.trim().toUpperCase()  || 'BTC';
         const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
         const amount = parseThousandsDots($('amount')?.value || '0');
 
-        // Прелоадер
         cmp.innerHTML = `<section class="card"><div class="muted">${dict[currentLang].calculating}</div></section>`;
 
         const scenarios = ['best_single', 'equal_split', 'optimal'];
-
         try {
-            // параллельно считаем все сценарии
-            const reqBody = (scenario) => JSON.stringify({ base, quote, amount, scenario });
             const fetchOne = (scenario) =>
                 fetch('/api/plan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: reqBody(scenario)
+                    body: JSON.stringify({ base, quote, amount, scenario }),
                 }).then(async r => {
                     const text = await r.text();
                     if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
@@ -325,12 +375,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const results = await Promise.all(scenarios.map(fetchOne));
 
-            // отрисовка: заголовок + три панели
-            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
-            cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
+            const baseU  = base.toUpperCase();
+            const quoteU = quote.toUpperCase();
+            const titleBase  = (baseU === 'USDT' && quoteU !== 'USDT') ? quote : base;
+            const titleQuote = 'USDT';
 
+            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${titleBase}/${titleQuote}</h2>`;
+            cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
         } catch (err) {
-            cmp.innerHTML = `<section class="card"><h2>Error</h2><pre>${String(err)}</pre></section>`;
+            let msg = String(err);
+            try {
+                const parsed = JSON.parse(msg);
+                if (parsed && parsed.error) {
+                    msg = parsed.error;
+                }
+            } catch {}
+            cmp.innerHTML = `<section class="card"><div style="color:#c008e8;font-weight:600">
+      Ошибка: ${msg}
+  </div></section>`;
         } finally {
             btn.disabled = false;
         }

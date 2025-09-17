@@ -114,17 +114,15 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		}
 		out := runScenario.Run(inp)
 
-		// Для SELL сценарии обычно не выставляют Leftover, поэтому считаем остаток сами
-		sold := out.TotalQty                // реально продали QUOTE (в валюте оплаты)
-		res.VWAP = round2(out.AveragePrice) // USDT за 1 QUOTE
-		// ВАЖНО: TotalCost должен быть в валюте оплаты (QUOTE), а не в USDT.
-		res.TotalCost = round2(sold)           // потратили QUOTE
-		res.Unspent = round2(in.Amount - sold) // не успели продать QUOTE
+		sold := out.TotalQty
+		res.VWAP = round2(out.AveragePrice)
+		res.TotalCost = round2(sold)
+		res.Unspent = round2(in.Amount - sold)
 		if res.Unspent < 0 {
 			res.Unspent = 0
 		}
-		res.Generated = out.TotalUSDT   // получили USDT (база)
-		res.Legs = toPlanLegs(out.Legs) // ножки продажи QUOTE -> USDT
+		res.Generated = out.TotalUSDT
+		res.Legs = toPlanLegs(out.Legs)
 
 	// === Маршрут через USDT: QUOTE -> USDT -> BASE ===
 	case !isUSDT(base) && !isUSDT(quote):
@@ -175,7 +173,7 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		// Итоги (для пары монета/монета показываем BASE за 1 QUOTE)
 		// Продаём QUOTE → получаем USDT; покупаем BASE за USDT.
 		// Эффективный кросс-курс BASE/QUOTE = (получено BASE) / (потрачено QUOTE).
-		res.VWAP = round2(gotBase / soldQuote)      // BASE/QUOTE
+		res.VWAP = round2(outBuy.AveragePrice)      // USDT за 1 BASE
 		res.TotalCost = round2(soldQuote)           // потратили QUOTE
 		res.Unspent = round2(in.Amount - soldQuote) // остаток QUOTE
 		if res.Unspent < 0 {
@@ -187,6 +185,30 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		res.Legs = toPlanLegs(outBuy.Legs)
 	}
 
+	// --- Унифицированная нормализация для отображения ---
+	// BUY или кросс: фиксируем quote=USDT.
+	// SELL (base=USDT, quote!=USDT): НЕ меняем quote, чтобы "Spend" был в монете оплаты.
+	{
+		db := strings.ToUpper(strings.TrimSpace(res.Base))
+		dq := strings.ToUpper(strings.TrimSpace(res.Quote))
+
+		if isUSDT(db) && !isUSDT(dq) {
+			// SELL-кейс: оставляем как есть (USDT / COIN в данных),
+			// фронт отрендерит пару как COIN / USDT сам.
+			// Ничего не меняем.
+		} else if !isUSDT(db) && isUSDT(dq) {
+			// BUY-кейс: монета / USDT — фиксируем надёжно
+			dq = "USDT"
+		} else if !isUSDT(db) && !isUSDT(dq) {
+			// кросс-коины: отчёт всегда относительно USDT
+			dq = "USDT"
+		} else {
+			// защитный случай
+			db, dq = "USDT", "USDT"
+		}
+
+		res.Base, res.Quote = db, dq
+	}
 	return res, nil
 }
 

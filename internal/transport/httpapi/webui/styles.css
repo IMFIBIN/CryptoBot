@@ -158,3 +158,8 @@ tfoot th{
     text-decoration: none;
 }
 .footer__desc a:hover { text-decoration: underline; }
+
+.grid-table.no-total tfoot {
+    display: none !important;
+}
+
