@@ -117,6 +117,16 @@ const priceUSDT = (n) => Number(n).toLocaleString(
     { minimumFractionDigits: 2, maximumFractionDigits: 2 }
 );
 
+// Убираем хвостовые нули у уже форматированной строки ("1,000000" -> "1")
+function trimZerosTail(str){
+    return str.replace(/([,.]\d*?)0+$/,'$1').replace(/[,.]$/,'');
+}
+
+// Формат короткого отображения количества монеты (для сумм в валюте оплаты в кросс-парах)
+function qtyCOINTerse(n){
+    return trimZerosTail(qtyBASE(n));
+}
+
 const sumAmount = (legs) => (Array.isArray(legs) ? legs : [])
     .reduce((s, l) => s + Number((l && l.amount) || 0), 0);
 
@@ -207,22 +217,23 @@ function buildSummaryHTML(j){
     // Сколько "затрачено": берём фактический totalCost от сервера.
     // Единицы:
     //   - USDT→монета: показываем в USDT
-    //   - монета→монета: показываем в базовой монете
+    //   - монета→монета: показываем в валюте оплаты (quote)
     const spentVal   = Number(j.totalCost ?? j.amount ?? 0);
-    const spendNum   = bothNotUsdt ? qtyBASE(spentVal) : moneyUSDT(spentVal);
-    const spendUnits = bothNotUsdt ? (j.base || '') : t.usdt;
+    const spendNum   = bothNotUsdt ? qtyCOINTerse(spentVal) : moneyUSDT(spentVal);
+    const spendUnits = bothNotUsdt ? (j.quote || '') : t.usdt;
 
-    // Не израсходовано
+    // Не израсходовано (в тех же единицах, что и "Затраты")
     const unspentVal = Number(j.unspent || 0);
-    const unspentStr = bothNotUsdt ? `${qtyBASE(unspentVal)} ${j.base || ''}`
+    const unspentStr = bothNotUsdt ? `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`
         : `${moneyUSDT(unspentVal)} ${t.usdt}`;
+
     const unspentBlock = (unspentVal > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
 
     // Стоимость без комиссий и итого к оплате — в тех же единицах, что и "Затраты"
     const assetsNoFeesVal = Number(j.totalCost || 0) - Number(j.totalFees || 0);
-    const assetsNoFeesNum = bothNotUsdt ? qtyBASE(assetsNoFeesVal) : moneyUSDT(assetsNoFeesVal);
-    const totalToPayNum   = bothNotUsdt ? qtyBASE(Number(j.totalCost || 0))
+    const assetsNoFeesNum = bothNotUsdt ? qtyCOINTerse(assetsNoFeesVal) : moneyUSDT(assetsNoFeesVal);
+    const totalToPayNum   = bothNotUsdt ? qtyCOINTerse(Number(j.totalCost || 0))
         : moneyUSDT(Number(j.totalCost || 0));
     const unitStr = spendUnits;
 
@@ -246,7 +257,7 @@ function buildSummaryHTML(j){
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${j.base || '-'} / ${j.quote || '-'}</div>
-       <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
+        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
         ${unspentBlock}
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
@@ -385,3 +396,4 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
