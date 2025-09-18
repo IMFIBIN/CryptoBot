@@ -68,10 +68,10 @@ function setLang(lang){
     document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn=>{
         btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
-    $('lbl-buy')   && ($('lbl-buy').textContent   = dict[lang].buy);
-    $('lbl-pay')   && ($('lbl-pay').textContent   = dict[lang].pay);
-    $('lbl-spend') && ($('lbl-spend').textContent = dict[lang].spend);
-    $('calc-btn')  && ($('calc-btn').textContent  = dict[lang].calculate);
+    const elBuy   = $('lbl-buy');   if (elBuy)   elBuy.textContent   = dict[lang].buy;
+    const elPay   = $('lbl-pay');   if (elPay)   elPay.textContent   = dict[lang].pay;
+    const elSpend = $('lbl-spend'); if (elSpend) elSpend.textContent = dict[lang].spend;
+    const elCalc  = $('calc-btn');  if (elCalc)  elCalc.textContent  = dict[lang].calculate;
     const health = $('health');
     if (health && !health.classList.contains('bad')) health.textContent = dict[lang].serverOK;
     const fs = $('footer-status');
@@ -80,27 +80,23 @@ function setLang(lang){
 
 const moneyUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 const qtyBASE = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 6, maximumFractionDigits: 6 }
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 const priceUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 
-function trimZerosTail(str){
-    return str.replace(/([,.]\d*?)0+$/,'$1').replace(/[,.]$/,'');
-}
 function qtyCOINTerse(n){
-    return trimZerosTail(qtyBASE(n));
+    return qtyBASE(n);
 }
 
-function sumBaseAmount(legs, base, quote){
+function sumBaseAmount(legs, base){
     const baseU = String(base||'').toUpperCase();
-    const quoteU= String(quote||'').toUpperCase();
     return (Array.isArray(legs)?legs:[]).reduce((s,l)=> s + Number(
         baseU === 'USDT'
             ? (l.usdt ?? l.amountUSDT ?? (Number(l.amount||0)*Number(l.price||0)))
@@ -188,20 +184,18 @@ function buildSummaryHTML(j){
     const avgUnits = `USDT ${t.per} ${pairBase}`;
 
     const spentVal   = Number(j.totalCost ?? j.amount ?? 0);
-    const spendNum   = isQuoteUSDT ? moneyUSDT(spentVal) : qtyCOINTerse(spentVal);
+    const spendNum   = qtyCOINTerse(spentVal);
     const spendUnits = j.quote || '';
 
     const unspentVal = Number(j.unspent || 0);
-    const unspentStr = isQuoteUSDT
-        ? `${moneyUSDT(unspentVal)} ${t.usdt}`
-        : `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
+    const unspentStr = `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
     const unspentBlock = (unspentVal > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
 
     const assetsNoFeesVal = Number(j.totalCost || 0) - Number(j.totalFees || 0);
-    const assetsNoFeesNum = isQuoteUSDT ? moneyUSDT(assetsNoFeesVal) : qtyCOINTerse(assetsNoFeesVal);
+    const assetsNoFeesNum = qtyCOINTerse(assetsNoFeesVal);
     const assetsUnitStr   = spendUnits;
-    const totalToPayNum   = isQuoteUSDT ? moneyUSDT(Number(j.totalCost || 0)) : qtyCOINTerse(Number(j.totalCost || 0));
+    const totalToPayNum   = qtyCOINTerse(Number(j.totalCost || 0));
     const unitStr = spendUnits;
 
     const descriptions = {
@@ -250,7 +244,7 @@ function buildAllocationHTML(j){
         }
         return Number(l.amount || 0);
     };
-    const fmtAmountBase = (n) => baseU === 'USDT' ? moneyUSDT(n) : qtyBASE(n);
+    const fmtAmountBase = (n) => qtyBASE(n);
 
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
@@ -288,7 +282,7 @@ function buildAllocationHTML(j){
        </div>`
         : '';
 
-    const totalBase = sumBaseAmount(legs, baseU, quoteU);
+    const totalBase = sumBaseAmount(legs, baseU);
 
     return `
   <h2>${t.allocation}</h2>
