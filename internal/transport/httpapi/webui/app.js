@@ -28,8 +28,8 @@ const dict = {
         usdt: 'USDT',
         calculating: 'Calculating…',
         resultsFor: 'Results for pair',
-    }
-    ,
+        diffCol: 'Difference',
+    },
     ru: {
         buy: 'Покупаем',
         pay: 'Отдаем',
@@ -57,6 +57,7 @@ const dict = {
         usdt: 'USDT',
         calculating: 'Расчёт…',
         resultsFor: 'Результаты для пары',
+        diffCol: 'Разница',
     }
 };
 
@@ -68,36 +69,31 @@ function setLang(lang) {
     document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn => {
         btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
-    const elBuy = $('lbl-buy');
-    if (elBuy) elBuy.textContent = dict[lang].buy;
-    const elPay = $('lbl-pay');
-    if (elPay) elPay.textContent = dict[lang].pay;
-    const elSpend = $('lbl-spend');
-    if (elSpend) elSpend.textContent = dict[lang].spend;
-    const elCalc = $('calc-btn');
-    if (elCalc) elCalc.textContent = dict[lang].calculate;
+    const elBuy = $('lbl-buy'); if (elBuy) elBuy.textContent = dict[lang].buy;
+    const elPay = $('lbl-pay'); if (elPay) elPay.textContent = dict[lang].pay;
+    const elSpend = $('lbl-spend'); if (elSpend) elSpend.textContent = dict[lang].spend;
+    const elCalc = $('calc-btn'); if (elCalc) elCalc.textContent = dict[lang].calculate;
     const health = $('health');
     if (health && !health.classList.contains('bad')) health.textContent = dict[lang].serverOK;
     const fs = $('footer-status');
     if (fs && !health?.classList.contains('bad')) fs.textContent = dict[lang].serverOK;
 }
 
+// 5 знаков, хвостовые нули обрезаем до хотя бы 1 знака — через локаль браузера
 const moneyUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    {minimumFractionDigits: 1, maximumFractionDigits: 5}
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 const qtyBASE = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    {minimumFractionDigits: 1, maximumFractionDigits: 5}
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 const priceUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    {minimumFractionDigits: 1, maximumFractionDigits: 5}
+    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 
-function qtyCOINTerse(n) {
-    return qtyBASE(n);
-}
+function qtyCOINTerse(n) { return qtyBASE(n); }
 
 function sumBaseAmount(legs, base) {
     const baseU = String(base || '').toUpperCase();
@@ -126,7 +122,7 @@ async function checkHealth() {
     const node = $('health');
     if (!node) return;
     try {
-        const r = await fetch('/api/health', {cache: 'no-store'});
+        const r = await fetch('/api/health', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
@@ -144,7 +140,7 @@ async function loadSymbols() {
     const quoteSel = $('quote');
     if (!baseSel || !quoteSel) return;
     try {
-        const r = await fetch('/api/symbols', {cache: 'no-store'});
+        const r = await fetch('/api/symbols', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         const bases = Array.isArray(j?.bases) ? j.bases : [];
@@ -181,7 +177,6 @@ function buildSummaryHTML(j) {
     const pairQuote = pairHasUSDT ? 'USDT' : (j.quote || '');
 
     const received = Number(j.generated || 0);
-    const isQuoteUSDT = (quoteU === 'USDT');
 
     const avgVal = Number(j.vwap || 0);
     const avgNum = priceUSDT(avgVal);
@@ -215,6 +210,7 @@ function buildSummaryHTML(j) {
     return `
     <h2>${t.summary} — ${scenarioTitle(j.scenario || '')}</h2>
     <p class="muted" style="margin-top:-6px;margin-bottom:12px;">${descr}</p>
+    <div class="divider"></div>
     <div class="grid-2">
       <div>
         <div><strong>${t.pair}:</strong> ${pairBase || '-'} / ${pairQuote || '-'}</div>
@@ -248,20 +244,22 @@ function buildAllocationHTML(j) {
 
     const legs = Array.isArray(j.legs) ? j.legs : [];
 
-    let bestIdx = -1, worstIdx = -1;
-    legs.forEach((l, i) => {
-        if (typeof l?.price !== 'number' || !isFinite(l.price)) return;
-        if (bestIdx === -1 || l.price < legs[bestIdx].price) bestIdx = i;
-        if (worstIdx === -1 || l.price > legs[worstIdx].price) worstIdx = i;
-    });
+    // сортируем от лучшей цены (минимальной) к худшей
+    const sorted = [...legs].filter(l => Number.isFinite(Number(l?.price))).sort(
+        (a, b) => Number(a.price) - Number(b.price)
+    );
+    const bestPrice = Number(sorted[0]?.price || 0);
 
-    const rows = legs.map((l, i) => {
-        const cls = i === bestIdx ? 'best-row' : i === worstIdx ? 'worst-row' : '';
+    // строим строки с подсветкой и колонкой "Разница" (сразу после "Количество")
+    const rows = sorted.map((l, i) => {
+        const cls = i === 0 ? 'best-row' : (i === sorted.length - 1 ? 'worst-row' : '');
+        const diff = Math.max(0, Number(l.price || 0) - bestPrice);
         return `<tr class="${cls}">
-      <td>${l.exchange || '-'}</td>
-      <td class="num">${fmtAmountBase(legBaseAmount(l))}</td>
-      <td class="num">${priceUSDT(l.price || 0)}</td>
-    </tr>`;
+          <td>${l.exchange || '-'}</td>
+          <td class="num">${fmtAmountBase(legBaseAmount(l))}</td>
+          <td class="num">${priceUSDT(diff)}</td>
+          <td class="num">${priceUSDT(l.price || 0)}</td>
+        </tr>`;
     }).join('');
 
     const priceHeader = (() => {
@@ -272,6 +270,7 @@ function buildAllocationHTML(j) {
     })();
 
     const amountHeader = `${t.amountCol} (${j.base || '-'})`;
+    const headerStyle = `style="font-size:1rem"`; // одинаковый размер шрифта заголовков
 
     const bothNotUsdt = (baseU !== 'USDT' && quoteU !== 'USDT');
     const viaUsdtNote = bothNotUsdt
@@ -282,29 +281,43 @@ function buildAllocationHTML(j) {
        </div>`
         : '';
 
-    const totalBase = sumBaseAmount(legs, baseU);
+    const totalBase = sumBaseAmount(sorted.length ? sorted : legs, baseU);
 
     return `
+  <div class="divider-small"></div>
   <h2>${t.allocation}</h2>
   ${viaUsdtNote}
   <table class="grid-table">
     <thead>
       <tr>
-        <th>${t.exchange}</th>
-        <th class="num">${amountHeader}</th>
-        <th class="num">${priceHeader}</th>
+        <th ${headerStyle}>${t.exchange}</th>
+        <th class="num" ${headerStyle}>${amountHeader}</th>
+        <th class="num" ${headerStyle}>${t.diffCol}</th>
+        <th class="num" ${headerStyle}>${priceHeader}</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
     ${j.scenario === 'best_single' ? '' : `
       <tfoot>
         <tr>
-          <th>${t.total}</th>
-          <th class="num">${fmtAmountBase(totalBase)}</th>
-          <th></th>
+          <th ${headerStyle}>${t.total}</th>
+          <th class="num" ${headerStyle}>${fmtAmountBase(totalBase)}</th>
+          <th ${headerStyle}></th>
+          <th ${headerStyle}></th>
         </tr>
       </tfoot>`}
   </table>
+  <div class="divider-legend"></div>
+  <div style="display:flex; gap:12px; font-size:0.9em; align-items:center;">
+    <div style="display:flex; align-items:center; gap:6px;">
+      <span style="display:inline-block;width:12px;height:12px;background:#36B37E26;border-radius:2px;"></span>
+      <span>${currentLang === 'ru' ? 'Лучший обмен' : 'Best rate'}</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <span style="display:inline-block;width:12px;height:12px;background:#EB575726;border-radius:2px;"></span>
+      <span>${currentLang === 'ru' ? 'Худший обмен' : 'Worst rate'}</span>
+    </div>
+  </div>
 `;
 }
 
@@ -351,15 +364,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
         const amount = parseThousandsDots($('amount')?.value || '0');
 
-        cmp.innerHTML = `<section class="card"><div class="muted">${dict[currentLang].calculating}</div></section>`;
+        cmp.innerHTML = `<section class="card"></section>`;
 
         const scenarios = ['best_single', 'equal_split', 'optimal'];
         try {
             const fetchOne = (scenario) =>
                 fetch('/api/plan', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({base, quote, amount, scenario}),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base, quote, amount, scenario }),
                 }).then(async r => {
                     const text = await r.text();
                     if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
@@ -381,11 +394,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let msg = String(err);
             try {
                 const parsed = JSON.parse(msg);
-                if (parsed && parsed.error) {
-                    msg = parsed.error;
-                }
-            } catch {
-            }
+                if (parsed && parsed.error) msg = parsed.error;
+            } catch {}
             cmp.innerHTML = `<section class="card"><div style="color:#c008e8;font-weight:600">
       Ошибка: ${msg}
   </div></section>`;

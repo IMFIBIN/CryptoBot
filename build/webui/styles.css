@@ -163,3 +163,22 @@ tfoot th{
     display: none !important;
 }
 
+.divider {
+    border-top: 1px solid #2b2f36;
+    margin: 10px 0 16px 0;
+}
+
+.divider-small {
+    border-top: 1px solid #2b2f36;
+    margin: 14px 0 8px 0;
+}
+
+.divider-legend {
+    border-top: 1px solid #2b2f36;
+    margin: 10px 0 8px 0;
+}
+
+.grid-table th {
+    font-size: 1rem;
+}
+
