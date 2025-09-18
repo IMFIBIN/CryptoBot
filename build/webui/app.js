@@ -16,7 +16,6 @@ const dict = {
         currentTime: 'Current time',
         spendLabel: 'Exchanged',
         avgPrice: 'Average price',
-        assetsNoFees: 'Asset value',
         totalToPay: 'Total to pay',
         exchange: 'Exchange',
         amountCol: 'Amount',
@@ -46,7 +45,6 @@ const dict = {
         currentTime: 'Текущее время',
         spendLabel: 'Обменяли',
         avgPrice: 'Средняя цена',
-        assetsNoFees: 'Стоимость активов',
         totalToPay: 'Итого к оплате',
         exchange: 'Биржа',
         amountCol: 'Количество',
@@ -198,9 +196,6 @@ function buildSummaryHTML(j) {
     const unspentBlock = (unspentVal > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
 
-    const assetsNoFeesVal = Number(j.totalCost || 0) - Number(j.totalFees || 0);
-    const assetsNoFeesNum = qtyCOINTerse(assetsNoFeesVal);
-    const assetsUnitStr = spendUnits;
     const totalToPayNum = qtyCOINTerse(Number(j.totalCost || 0));
     const unitStr = spendUnits;
 
@@ -230,7 +225,6 @@ function buildSummaryHTML(j) {
       <div>
         <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
         <div><strong>${t.avgPrice}:</strong> ${avgNum} ${avgUnits}</div>
-        <div><strong>${t.assetsNoFees}:</strong> ${assetsNoFeesNum} ${assetsUnitStr}</div>
         <div><strong>${t.totalToPay}:</strong> ${totalToPayNum} ${unitStr}</div>
       </div>
     </div>
