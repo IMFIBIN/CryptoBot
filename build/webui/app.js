@@ -1,13 +1,24 @@
+// internal/transport/httpapi/webui/app.js
+// ES-модуль: UI-слой (рендер и события). Логику локали/форматирования/запросов берём из модулей.
+import { dict, currentLang, setLang, scenarioTitle } from './i18n.js';
+import {
+    moneyUSDT, qtyBASE, priceUSDT, qtyBASE5, qtyQUOTE5, priceUSDT5,
+    qtyCOINTerse, formatThousandsDots, parseThousandsDots
+} from './format.js';
+import { checkHealth, loadSymbols, plan } from './api.js';
+
 const $ = (id) => document.getElementById(id);
 
 /* ────────────────────────────────────────────────────────────────────────────
    Toggle: «Показать выгоду наглядно» (только для сценария 1 — best_single)
    ──────────────────────────────────────────────────────────────────────────── */
-const uniformMinQty = new Set(); // 0: best_single, 1: equal_split, 2: optimal
+const uniformMinQty = new Set();
 function toggleUniformMinQty(idx) {
     if (uniformMinQty.has(idx)) uniformMinQty.delete(idx); else uniformMinQty.add(idx);
     rerenderScenario(idx);
 }
+
+window.toggleUniformMinQty = toggleUniformMinQty;
 
 /* Синхронизация стиля кнопок: делаем кнопку визуального режима как «Рассчитать» */
 function applyCalcStyleToButtons() {
@@ -24,112 +35,7 @@ function applyCalcStyleToButtons() {
     });
 }
 
-const dict = {
-    en: {
-        buy: 'Exchanged to',
-        pay: 'Give',
-        spend: 'Amount to give',
-        calculate: 'Calculate',
-        summary: 'The script',
-        allocation: 'Allocation',
-        serverOK: 'Server is working',
-        serverFail: 'Server is not responding',
-        pair: 'Pair',
-        receive: 'Exchanged to',
-        unspent: 'Unspent (order book depth limit)',
-        currentTime: 'Current time',
-        spendLabel: 'Exchanged',
-        avgPrice: 'Average price',
-        totalToPay: 'Total to pay',
-        exchange: 'Give',
-        amountCol: 'Amount to give',
-        priceCol: 'Exchanged to',
-        total: 'Total',
-        per: 'per 1',
-        best_single: 'All funds to one exchange',
-        equal_split: 'Even distribution',
-        optimal: 'AI distribution',
-        usdt: 'USDT',
-        calculating: 'Calculating…',
-        resultsFor: 'Results for pair',
-        diffCol: 'Difference',
-    },
-    ru: {
-        buy: 'Обмениваем на',
-        pay: 'Отдаём',
-        spend: 'Сколько отдаём',
-        calculate: 'Рассчитать',
-        summary: 'Сценарий',
-        allocation: 'Распределение',
-        serverOK: 'Сервер работает',
-        serverFail: 'Сервер не отвечает',
-        pair: 'Пара',
-        receive: 'Обмениваем на',
-        unspent: 'Не израсходовано (ограничение глубины)',
-        currentTime: 'Текущее время',
-        spendLabel: 'Обменяли',
-        avgPrice: 'Средняя цена',
-        totalToPay: 'Итого к оплате',
-        exchange: 'Отдаём',
-        amountCol: 'Сколько отдаём',
-        priceCol: 'Обмениваем на',
-        total: 'Итого',
-        per: 'за 1',
-        best_single: 'Все деньги в одну биржу',
-        equal_split: 'Равномерное распределение средств',
-        optimal: 'AI распределение',
-        usdt: 'USDT',
-        calculating: 'Расчёт…',
-        resultsFor: 'Результаты для пары',
-        diffCol: 'Разница',
-    }
-};
-
-let currentLang = localStorage.getItem('lang') || 'ru';
-
-function setLang(lang) {
-    currentLang = lang;
-    localStorage.setItem('lang', lang);
-    document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn => {
-        btn.classList.toggle('active', btn.id === `btn-${lang}`);
-    });
-    const elBuy = $('lbl-buy');     if (elBuy) elBuy.textContent = dict[lang].buy;
-    const elPay = $('lbl-pay');     if (elPay) elPay.textContent = dict[lang].pay;
-    const elSpend = $('lbl-spend'); if (elSpend) elSpend.textContent = dict[lang].spend;
-    const elCalc = $('calc-btn');   if (elCalc) elCalc.textContent = dict[lang].calculate;
-    const health = $('health');
-    if (health && !health.classList.contains('bad')) health.textContent = dict[lang].serverOK;
-    const fs = $('footer-status');
-    if (fs && !health?.classList.contains('bad')) fs.textContent = dict[lang].serverOK;
-}
-
-/* Форматирование */
-const moneyUSDT = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
-);
-const qtyBASE = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
-);
-const priceUSDT = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 1, maximumFractionDigits: 5 }
-);
-const qtyBASE5 = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
-);
-const qtyQUOTE5 = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
-);
-const priceUSDT5 = (n) => Number(n).toLocaleString(
-    currentLang === 'ru' ? 'ru-RU' : 'en-US',
-    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
-);
-function qtyCOINTerse(n) { return qtyBASE(n); }
-
+/* Вспомогательное: суммирование количества BASE по ногам */
 function sumBaseAmount(legs, base) {
     const baseU = String(base || '').toUpperCase();
     return (Array.isArray(legs) ? legs : []).reduce((s, l) => s + Number(
@@ -139,67 +45,9 @@ function sumBaseAmount(legs, base) {
     ), 0);
 }
 
-const formatThousandsDots = (digits) =>
-    digits.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-const parseThousandsDots = (val) => {
-    const digits = String(val || '').replace(/\./g, '').replace(/\s/g, '');
-    const n = parseInt(digits, 10);
-    return Number.isFinite(n) ? n : 0;
-};
-
-function updateFooterStatus(ok) {
-    const el = $('footer-status');
-    if (!el) return;
-    el.textContent = ok ? dict[currentLang].serverOK : dict[currentLang].serverFail;
-}
-
-async function checkHealth() {
-    const node = $('health');
-    if (!node) return;
-    try {
-        const r = await fetch('/api/health', { cache: 'no-store' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        node.textContent = j?.status ? dict[currentLang].serverOK : dict[currentLang].serverFail;
-        node.classList.toggle('bad', !j?.status);
-        updateFooterStatus(Boolean(j?.status));
-    } catch {
-        node.textContent = dict[currentLang].serverFail;
-        node.classList.add('bad');
-        updateFooterStatus(false);
-    }
-}
-
-async function loadSymbols() {
-    const baseSel = $('base');
-    const quoteSel = $('quote');
-    if (!baseSel || !quoteSel) return;
-    try {
-        const r = await fetch('/api/symbols', { cache: 'no-store' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = await r.json();
-        const bases = Array.isArray(j?.bases) ? j.bases : [];
-        let quotes = Array.isArray(j?.quotes) ? j.quotes : [];
-        if (!quotes.length) quotes = bases.slice();
-        baseSel.innerHTML = bases.map(b => `<option value="${b}">${b}</option>`).join('');
-        quoteSel.innerHTML = quotes.map(q => `<option value="${q}">${q}</option>`).join('');
-        if (quotes.includes('USDT')) quoteSel.value = 'USDT'; else quoteSel.selectedIndex = 0;
-    } catch {
-        const fallback = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'TON', 'TRX', 'DOT'];
-        baseSel.innerHTML = fallback.map(b => `<option value="${b}">${b}</option>`).join('');
-        quoteSel.innerHTML = fallback.map(q => `<option value="${q}">${q}</option>`).join('');
-        quoteSel.value = 'USDT';
-    }
-}
-
-function scenarioTitle(s) {
-    const t = dict[currentLang];
-    if (s === 'best_single') return t.best_single;
-    if (s === 'equal_split') return t.equal_split;
-    if (s === 'optimal') return t.optimal;
-    return s || '';
-}
-
+/* ────────────────────────────────────────────────────────────────────────────
+   Рендер
+   ──────────────────────────────────────────────────────────────────────────── */
 function buildSummaryHTML(j) {
     const t = dict[currentLang];
 
@@ -243,7 +91,7 @@ function buildSummaryHTML(j) {
       </div>
       <div>
         <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${base}</div>
-        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${quote}</div>
+        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
         ${unspentBlock}
       </div>
     </div>
@@ -291,9 +139,9 @@ function buildAllocationHTML(j, idx) {
     const exchangeHeader = t.exchange;
     const amountHeader   = `${t.amountCol} (${quote})`;
     const priceHeader    = `${t.priceCol} (${base})`;
-    const diffHeader = showUniform ? `${t.diffCol} (${quote})` : `${t.diffCol}`;
+    const diffHeader     = showUniform ? `${t.diffCol} (${quote})` : `${t.diffCol}`;
 
-    // Подсказка о маршруте через USDT показывается как инфо-текст и не влияет на пары
+    // Подсказка о маршруте через USDT — инфо-текст
     const bothNotUsdt = (String(base).toUpperCase() !== 'USDT' && String(quote).toUpperCase() !== 'USDT');
     const viaUsdtNote = bothNotUsdt
         ? `<div class="muted" style="margin:6px 0 10px 0;">
@@ -334,7 +182,7 @@ function buildAllocationHTML(j, idx) {
     }).join('');
 
     // Таблица
-    const totalBase = sumBaseAmount(legs.length ? legs : legsRaw, baseU);
+    const totalBase  = sumBaseAmount(legs.length ? legs : legsRaw, baseU);
     const totalQuote = Number(j.totalCost ?? j.amount ?? 0);
 
     if (isOptimal) {
@@ -343,22 +191,22 @@ function buildAllocationHTML(j, idx) {
       <h2>${t.allocation}</h2>
       ${viaUsdtNote}
       <table class="grid-table">
-    <thead>
-      <tr>
-        <th>${t.exchange}</th>
-        <th class="num">${amountHeader}</th>
-        <th class="num">${priceHeader}</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-    <tfoot>
-      <tr>
-        <th>${t.total}</th>
-        <th class="num">${qtyQUOTE5(totalQuote)}</th>
-        <th class="num">${qtyBASE5(totalBase)}</th>
-      </tr>
-    </tfoot>
-  </table>
+        <thead>
+          <tr>
+            <th>${exchangeHeader}</th>
+            <th class="num">${amountHeader}</th>
+            <th class="num">${priceHeader}</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <th>${t.total}</th>
+            <th class="num">${qtyQUOTE5(totalQuote)}</th>
+            <th class="num">${qtyBASE5(totalBase)}</th>
+          </tr>
+        </tfoot>
+      </table>
     `;
     }
 
@@ -386,7 +234,7 @@ function buildAllocationHTML(j, idx) {
     <table class="grid-table">
       <thead>
         <tr>
-          <th>${t.exchange}</th>
+          <th>${exchangeHeader}</th>
           <th class="num">${amountHeader}</th>
           <th class="num">${diffHeader}</th>
           <th class="num">${priceHeader}</th>
@@ -427,6 +275,9 @@ function buildScenarioPanel(j, idx) {
   `;
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Инициализация UI
+   ──────────────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
     const y = $('footer-year');
     if (y) y.textContent = new Date().getFullYear();
@@ -465,20 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const scenarios = ['best_single', 'equal_split', 'optimal'];
         try {
-            const fetchOne = (scenario) =>
-                fetch('/api/plan', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ base, quote, amount, scenario }),
-                }).then(async r => {
-                    const text = await r.text();
-                    if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
-                    const j = JSON.parse(text);
-                    if (j && j.error) throw new Error(j.error);
-                    return j;
-                });
-
-            const results = await Promise.all(scenarios.map(fetchOne));
+            const results = await Promise.all(scenarios.map(s => plan(base, quote, amount, s)));
             window._lastResults = results;
 
             const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
