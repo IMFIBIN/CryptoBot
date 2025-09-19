@@ -26,24 +26,24 @@ function applyCalcStyleToButtons() {
 
 const dict = {
     en: {
-        buy: 'Buy',
-        pay: 'Pay',
-        spend: 'Amount to spend',
+        buy: 'Exchanged to',
+        pay: 'Give',
+        spend: 'Amount to give',
         calculate: 'Calculate',
         summary: 'The script',
         allocation: 'Allocation',
         serverOK: 'Server is working',
         serverFail: 'Server is not responding',
         pair: 'Pair',
-        receive: 'Received',
+        receive: 'Exchanged to',
         unspent: 'Unspent (order book depth limit)',
         currentTime: 'Current time',
         spendLabel: 'Exchanged',
         avgPrice: 'Average price',
         totalToPay: 'Total to pay',
-        exchange: 'Exchange',
-        amountCol: 'Amount',
-        priceCol: 'Price',
+        exchange: 'Give',
+        amountCol: 'Amount to give',
+        priceCol: 'Exchanged to',
         total: 'Total',
         per: 'per 1',
         best_single: 'All funds to one exchange',
@@ -55,8 +55,8 @@ const dict = {
         diffCol: 'Difference',
     },
     ru: {
-        buy: 'Покупаем',
-        pay: 'Отдаем',
+        buy: 'Обмениваем на',
+        pay: 'Отдаём',
         spend: 'Сколько отдаём',
         calculate: 'Рассчитать',
         summary: 'Сценарий',
@@ -64,15 +64,15 @@ const dict = {
         serverOK: 'Сервер работает',
         serverFail: 'Сервер не отвечает',
         pair: 'Пара',
-        receive: 'Получили',
+        receive: 'Обмениваем на',
         unspent: 'Не израсходовано (ограничение глубины)',
         currentTime: 'Текущее время',
         spendLabel: 'Обменяли',
         avgPrice: 'Средняя цена',
         totalToPay: 'Итого к оплате',
-        exchange: 'Биржа',
-        amountCol: 'Количество',
-        priceCol: 'Цена',
+        exchange: 'Отдаём',
+        amountCol: 'Сколько отдаём',
+        priceCol: 'Обмениваем на',
         total: 'Итого',
         per: 'за 1',
         best_single: 'Все деньги в одну биржу',
@@ -117,6 +117,10 @@ const priceUSDT = (n) => Number(n).toLocaleString(
     { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
 const qtyBASE5 = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
+);
+const qtyQUOTE5 = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 5, maximumFractionDigits: 5 }
 );
@@ -284,8 +288,9 @@ function buildAllocationHTML(j, idx) {
     const showUniform = isBestSingle && uniformMinQty.has(idx);
 
     // Заголовки
-    const priceHeader = `${currentLang === 'ru' ? 'Цена' : 'Price'} (${quote} ${currentLang === 'ru' ? 'за 1' : 'per 1'} ${base})`;
-    const amountHeader = `${t.amountCol} (${base})`;
+    const exchangeHeader = t.exchange;
+    const amountHeader   = `${t.amountCol} (${quote})`;
+    const priceHeader    = `${t.priceCol} (${base})`;
     const diffHeader = showUniform ? `${t.diffCol} (${quote})` : `${t.diffCol}`;
 
     // Подсказка о маршруте через USDT показывается как инфо-текст и не влияет на пары
@@ -306,8 +311,8 @@ function buildAllocationHTML(j, idx) {
 
         // Разница: обычный режим — BASE; режим наглядности — QUOTE
         const diffValue = showUniform
-            ? (minQty * price - minQty * bestPrice)   // в валюте котировки
-            : (qtyReal - bestQty);                    // в BASE
+            ? (minQty * price - minQty * bestPrice)
+            : (qtyReal - bestQty);
 
         const diffCell = showUniform ? priceUSDT5(diffValue) : qtyBASE5(diffValue);
 
@@ -330,6 +335,7 @@ function buildAllocationHTML(j, idx) {
 
     // Таблица
     const totalBase = sumBaseAmount(legs.length ? legs : legsRaw, baseU);
+    const totalQuote = Number(j.totalCost ?? j.amount ?? 0);
 
     if (isOptimal) {
         return `
@@ -337,22 +343,22 @@ function buildAllocationHTML(j, idx) {
       <h2>${t.allocation}</h2>
       ${viaUsdtNote}
       <table class="grid-table">
-        <thead>
-          <tr>
-            <th>${t.exchange}</th>
-            <th class="num">${amountHeader}</th>
-            <th class="num">${priceHeader}</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          <tr>
-            <th>${t.total}</th>
-            <th class="num">${qtyBASE5(totalBase)}</th>
-            <th></th>
-          </tr>
-        </tfoot>
-      </table>
+    <thead>
+      <tr>
+        <th>${t.exchange}</th>
+        <th class="num">${amountHeader}</th>
+        <th class="num">${priceHeader}</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr>
+        <th>${t.total}</th>
+        <th class="num">${qtyQUOTE5(totalQuote)}</th>
+        <th class="num">${qtyBASE5(totalBase)}</th>
+      </tr>
+    </tfoot>
+  </table>
     `;
     }
 
@@ -479,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const panels = results.map((r, i) => buildScenarioPanel(r, i)).join('');
             cmp.innerHTML = title + panels;
 
-            applyCalcStyleToButtons(); // сделать кнопку синей как «Рассчитать»
+            applyCalcStyleToButtons();
         } catch (err) {
             let msg = String(err);
             try {
