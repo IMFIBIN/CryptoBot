@@ -69,17 +69,17 @@ function setLang(lang) {
     document.querySelectorAll('#lang-toggle .lang-btn')?.forEach(btn => {
         btn.classList.toggle('active', btn.id === `btn-${lang}`);
     });
-    const elBuy = $('lbl-buy'); if (elBuy) elBuy.textContent = dict[lang].buy;
-    const elPay = $('lbl-pay'); if (elPay) elPay.textContent = dict[lang].pay;
+    const elBuy = $('lbl-buy');     if (elBuy) elBuy.textContent = dict[lang].buy;
+    const elPay = $('lbl-pay');     if (elPay) elPay.textContent = dict[lang].pay;
     const elSpend = $('lbl-spend'); if (elSpend) elSpend.textContent = dict[lang].spend;
-    const elCalc = $('calc-btn'); if (elCalc) elCalc.textContent = dict[lang].calculate;
+    const elCalc = $('calc-btn');   if (elCalc) elCalc.textContent = dict[lang].calculate;
     const health = $('health');
     if (health && !health.classList.contains('bad')) health.textContent = dict[lang].serverOK;
     const fs = $('footer-status');
     if (fs && !health?.classList.contains('bad')) fs.textContent = dict[lang].serverOK;
 }
 
-// 5 знаков, хвостовые нули обрезаем до хотя бы 1 знака — через локаль браузера
+/* Гибкое форматирование (для блока «Сценарий») */
 const moneyUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 1, maximumFractionDigits: 5 }
@@ -91,6 +91,16 @@ const qtyBASE = (n) => Number(n).toLocaleString(
 const priceUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 1, maximumFractionDigits: 5 }
+);
+
+/* Ровно 5 знаков (для таблицы «Распределение») */
+const qtyBASE5 = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
+);
+const priceUSDT5 = (n) => Number(n).toLocaleString(
+    currentLang === 'ru' ? 'ru-RU' : 'en-US',
+    { minimumFractionDigits: 5, maximumFractionDigits: 5 }
 );
 
 function qtyCOINTerse(n) { return qtyBASE(n); }
@@ -171,28 +181,19 @@ function buildSummaryHTML(j) {
     const quoteU = String(j.quote || '').toUpperCase();
 
     const pairHasUSDT = (baseU === 'USDT') || (quoteU === 'USDT');
-    const pairBase = pairHasUSDT
-        ? (baseU === 'USDT' ? (j.quote || '') : (j.base || ''))
-        : (j.base || '');
+    const pairBase  = pairHasUSDT ? (baseU === 'USDT' ? (j.quote || '') : (j.base || '')) : (j.base || '');
     const pairQuote = pairHasUSDT ? 'USDT' : (j.quote || '');
 
     const received = Number(j.generated || 0);
 
-    const avgVal = Number(j.vwap || 0);
-    const avgNum = priceUSDT(avgVal);
-    const avgUnits = `USDT ${t.per} ${pairBase}`;
-
-    const spentVal = Number(j.totalCost ?? j.amount ?? 0);
-    const spendNum = qtyCOINTerse(spentVal);
+    const spentVal  = Number(j.totalCost ?? j.amount ?? 0);
+    const spendNum  = qtyCOINTerse(spentVal);
     const spendUnits = j.quote || '';
 
-    const unspentVal = Number(j.unspent || 0);
-    const unspentStr = `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
+    const unspentVal  = Number(j.unspent || 0);
+    const unspentStr  = `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
     const unspentBlock = (unspentVal > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
-
-    const totalToPayNum = qtyCOINTerse(Number(j.totalCost || 0));
-    const unitStr = spendUnits;
 
     const descriptions = {
         best_single: currentLang === 'ru'
@@ -220,8 +221,7 @@ function buildSummaryHTML(j) {
       </div>
       <div>
         <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
-        <div><strong>${t.avgPrice}:</strong> ${avgNum} ${avgUnits}</div>
-        <div><strong>${t.totalToPay}:</strong> ${totalToPayNum} ${unitStr}</div>
+        <!-- avgPrice & totalToPay убраны по требованию -->
       </div>
     </div>
   `;
@@ -229,9 +229,11 @@ function buildSummaryHTML(j) {
 
 function buildAllocationHTML(j) {
     const t = dict[currentLang];
-    const baseU = String(j.base || '').toUpperCase();
+    const baseU  = String(j.base || '').toUpperCase();
     const quoteU = String(j.quote || '').toUpperCase();
+    const isOptimal = (j.scenario === 'optimal');
 
+    // сколько BASE на ноге
     const legBaseAmount = (l) => {
         if (baseU === 'USDT') {
             const u = (l && (l.usdt ?? l.amountUSDT));
@@ -240,37 +242,54 @@ function buildAllocationHTML(j) {
         }
         return Number(l.amount || 0);
     };
-    const fmtAmountBase = (n) => qtyBASE(n);
 
-    const legs = Array.isArray(j.legs) ? j.legs : [];
+    const legsRaw = Array.isArray(j.legs) ? j.legs : [];
 
-    // сортируем от лучшей цены (минимальной) к худшей
-    const sorted = [...legs].filter(l => Number.isFinite(Number(l?.price))).sort(
-        (a, b) => Number(a.price) - Number(b.price)
-    );
-    const bestPrice = Number(sorted[0]?.price || 0);
+    // Сортировка: в "optimal" просто сохраняем исходный порядок (распределение уже оптимально),
+    // в остальных сценариях сортируем по цене (меньше = лучше)
+    const legs = isOptimal
+        ? legsRaw.slice()
+        : legsRaw
+            .filter(l => Number.isFinite(Number(l?.price)))
+            .sort((a, b) => Number(a.price) - Number(b.price));
 
-    // строим строки с подсветкой и колонкой "Разница" (сразу после "Количество")
-    const rows = sorted.map((l, i) => {
-        const cls = i === 0 ? 'best-row' : (i === sorted.length - 1 ? 'worst-row' : '');
-        const diff = Math.max(0, Number(l.price || 0) - bestPrice);
+    // Базовый объём лучшей строки (нужен только для не-optimal, чтобы посчитать "Разница")
+    const bestQty = (!isOptimal && legs.length) ? legBaseAmount(legs[0]) : 0;
+
+    // Строки таблицы
+    const rows = legs.map((l, i) => {
+        const qty = legBaseAmount(l);
+        const price = Number(l.price || 0);
+
+        if (isOptimal) {
+            // Без подсветки, без "Разница"
+            return `<tr>
+              <td>${l.exchange || '-'}</td>
+              <td class="num">${qtyBASE5(qty)}</td>
+              <td class="num">${priceUSDT5(price)}</td>
+            </tr>`;
+        }
+
+        // Не optimal: подсветки + "Разница" по количеству BASE (5 знаков)
+        const cls = i === 0 ? 'best-row' : (i === legs.length - 1 ? 'worst-row' : '');
+        const diffQty = qty - bestQty; // у лучшей 0.00000, у остальных — отрицательное
         return `<tr class="${cls}">
           <td>${l.exchange || '-'}</td>
-          <td class="num">${fmtAmountBase(legBaseAmount(l))}</td>
-          <td class="num">${priceUSDT(diff)}</td>
-          <td class="num">${priceUSDT(l.price || 0)}</td>
+          <td class="num">${qtyBASE5(qty)}</td>
+          <td class="num">${qtyBASE5(diffQty)}</td>
+          <td class="num">${priceUSDT5(price)}</td>
         </tr>`;
     }).join('');
 
+    // Заголовки
     const priceHeader = (() => {
         const label = currentLang === 'ru' ? 'Цена (USDT за 1 ' : 'Price (USDT per 1 ';
         if (quoteU === 'USDT') return `${label}${j.base || '-'})`;
-        if (baseU === 'USDT') return `${label}${j.quote || '-'})`;
+        if (baseU  === 'USDT') return `${label}${j.quote || '-'})`;
         return `${label}${j.base || '-'})`;
     })();
 
     const amountHeader = `${t.amountCol} (${j.base || '-'})`;
-    const headerStyle = `style="font-size:1rem"`; // одинаковый размер шрифта заголовков
 
     const bothNotUsdt = (baseU !== 'USDT' && quoteU !== 'USDT');
     const viaUsdtNote = bothNotUsdt
@@ -281,8 +300,35 @@ function buildAllocationHTML(j) {
        </div>`
         : '';
 
-    const totalBase = sumBaseAmount(sorted.length ? sorted : legs, baseU);
+    const totalBase = sumBaseAmount(legs.length ? legs : legsRaw, baseU);
 
+    // Таблица и легенда: для optimal 3 колонки и без легенды; для остальных — 4 колонки и легенда
+    if (isOptimal) {
+        return `
+  <div class="divider-small"></div>
+  <h2>${t.allocation}</h2>
+  ${viaUsdtNote}
+  <table class="grid-table">
+    <thead>
+      <tr>
+        <th>${t.exchange}</th>
+        <th class="num">${amountHeader}</th>
+        <th class="num">${priceHeader}</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr>
+        <th>${t.total}</th>
+        <th class="num">${qtyBASE5(totalBase)}</th>
+        <th></th>
+      </tr>
+    </tfoot>
+  </table>
+`;
+    }
+
+    // Не optimal — прежний вариант с «Разница» и легендой
     return `
   <div class="divider-small"></div>
   <h2>${t.allocation}</h2>
@@ -290,20 +336,20 @@ function buildAllocationHTML(j) {
   <table class="grid-table">
     <thead>
       <tr>
-        <th ${headerStyle}>${t.exchange}</th>
-        <th class="num" ${headerStyle}>${amountHeader}</th>
-        <th class="num" ${headerStyle}>${t.diffCol}</th>
-        <th class="num" ${headerStyle}>${priceHeader}</th>
+        <th>${t.exchange}</th>
+        <th class="num">${amountHeader}</th>
+        <th class="num">${t.diffCol}</th>
+        <th class="num">${priceHeader}</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
     ${j.scenario === 'best_single' ? '' : `
       <tfoot>
         <tr>
-          <th ${headerStyle}>${t.total}</th>
-          <th class="num" ${headerStyle}>${fmtAmountBase(totalBase)}</th>
-          <th ${headerStyle}></th>
-          <th ${headerStyle}></th>
+          <th>${t.total}</th>
+          <th class="num">${qtyBASE5(totalBase)}</th>
+          <th></th>
+          <th></th>
         </tr>
       </tfoot>`}
   </table>
@@ -320,6 +366,7 @@ function buildAllocationHTML(j) {
   </div>
 `;
 }
+
 
 function buildScenarioPanel(j) {
     return `
@@ -352,19 +399,19 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSymbols();
 
     const form = $('plan-form');
-    const cmp = $('comparisons');
-    const btn = $('calc-btn');
+    const cmp  = $('comparisons');
+    const btn  = $('calc-btn');
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         if (!btn || !cmp) return;
         btn.disabled = true;
 
-        const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
-        const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
+        const base   = $('base')?.value?.trim().toUpperCase() || 'BTC';
+        const quote  = $('quote')?.value?.trim().toUpperCase() || 'USDT';
         const amount = parseThousandsDots($('amount')?.value || '0');
 
-        cmp.innerHTML = `<section class="card"></section>`;
+        cmp.innerHTML = `<section class="card"><div class="muted">${dict[currentLang].calculating}</div></section>`;
 
         const scenarios = ['best_single', 'equal_split', 'optimal'];
         try {
@@ -385,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const baseU = base.toUpperCase();
             const quoteU = quote.toUpperCase();
-            const titleBase = (baseU === 'USDT' && quoteU !== 'USDT') ? quote : base;
+            const titleBase  = (baseU === 'USDT' && quoteU !== 'USDT') ? quote : base;
             const titleQuote = 'USDT';
 
             const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${titleBase}/${titleQuote}</h2>`;
