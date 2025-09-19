@@ -76,7 +76,7 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		}
 		res.Diagnostics = append(res.Diagnostics, diags...)
 
-		// готовим вход для сценария
+		// вход для сценария
 		inp := scenario.Inputs{
 			Direction:  scenario.Buy,
 			Symbol:     base + "USDT",
@@ -88,7 +88,7 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		}
 		out := runScenario.Run(inp)
 
-		// маппинг результата
+		// маппинг результата (единицы — USDT/BASE и USDT)
 		res.VWAP = round2(out.AveragePrice)   // USDT за 1 BASE
 		res.TotalCost = round2(out.TotalUSDT) // потрачено USDT
 		res.Unspent = round2(out.Leftover)    // не потратили USDT
@@ -114,14 +114,14 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 		}
 		out := runScenario.Run(inp)
 
-		sold := out.TotalQty
-		res.VWAP = round2(out.AveragePrice)
-		res.TotalCost = round2(sold)
+		sold := out.TotalQty                // сколько QUOTE реально продали
+		res.VWAP = round2(out.AveragePrice) // USDT за 1 QUOTE
+		res.TotalCost = round2(sold)        // «обменяли» — в QUOTE
 		res.Unspent = round2(in.Amount - sold)
 		if res.Unspent < 0 {
 			res.Unspent = 0
 		}
-		res.Generated = out.TotalUSDT
+		res.Generated = out.TotalUSDT // получили USDT
 		res.Legs = toPlanLegs(out.Legs)
 
 	// === Маршрут через USDT: QUOTE -> USDT -> BASE ===
@@ -142,10 +142,9 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 			MaxStale:   0,
 		}
 		outSell := runScenario.Run(inSell)
-		soldQuote := outSell.TotalQty    // сколько QUOTE реально продали
-		usdProceeds := outSell.TotalUSDT // сколько USDT получили
-
-		if soldQuote <= 0 || usdProceeds <= 0 {
+		soldQuote := outSell.TotalQty // сколько QUOTE реально продали
+		usdtFromSell := outSell.TotalUSDT
+		if soldQuote <= 0 || usdtFromSell <= 0 {
 			return Result{}, fmt.Errorf("insufficient depth on QUOTE->USDT leg")
 		}
 
@@ -159,7 +158,7 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 			Direction:  scenario.Buy,
 			Symbol:     base + "USDT",
 			Right:      base,
-			Amount:     usdProceeds, // бюджет в USDT
+			Amount:     usdtFromSell, // бюджет в USDT
 			OrderBooks: toOrderBooks(booksB, base+"USDT", now),
 			Now:        now,
 			MaxStale:   0,
@@ -170,45 +169,38 @@ func (s *Service) Plan(ctx context.Context, in Request) (Result, error) {
 			return Result{}, fmt.Errorf("insufficient depth on USDT->BASE leg")
 		}
 
-		// Итоги (для пары монета/монета показываем BASE за 1 QUOTE)
-		// Продаём QUOTE → получаем USDT; покупаем BASE за USDT.
-		// Эффективный кросс-курс BASE/QUOTE = (получено BASE) / (потрачено QUOTE).
-		res.VWAP = round2(outBuy.AveragePrice)      // USDT за 1 BASE
-		res.TotalCost = round2(soldQuote)           // потратили QUOTE
-		res.Unspent = round2(in.Amount - soldQuote) // остаток QUOTE
+		// 3) Конвертируем «USDT за 1 BASE» → «QUOTE за 1 BASE»
+		// usdtPerQuote = USDT/QUOTE берём из первой ноги (продажи)
+		usdtPerQuote := outSell.AveragePrice
+		var vwapQuotePerBase float64
+		if usdtPerQuote > 0 {
+			vwapQuotePerBase = outBuy.AveragePrice / usdtPerQuote
+		} else {
+			// на крайний случай оставим в USDT
+			vwapQuotePerBase = outBuy.AveragePrice
+		}
+
+		// Итоги: для пары BASE/QUOTE
+		res.VWAP = round2(vwapQuotePerBase) // QUOTE за 1 BASE
+		res.TotalCost = round2(soldQuote)   // потратили QUOTE
+		res.Unspent = round2(in.Amount - soldQuote)
 		if res.Unspent < 0 {
 			res.Unspent = 0
 		}
 		res.Generated = gotBase
 
-		// В распределении показываем только покупку USDT->BASE (ножки продажи скрываем)
+		// В распределении показываем покупку USDT->BASE, но цену переводим в QUOTE/BASE
 		res.Legs = toPlanLegs(outBuy.Legs)
-	}
-
-	// --- Унифицированная нормализация для отображения ---
-	// BUY или кросс: фиксируем quote=USDT.
-	// SELL (base=USDT, quote!=USDT): НЕ меняем quote, чтобы "Spend" был в монете оплаты.
-	{
-		db := strings.ToUpper(strings.TrimSpace(res.Base))
-		dq := strings.ToUpper(strings.TrimSpace(res.Quote))
-
-		if isUSDT(db) && !isUSDT(dq) {
-			// SELL-кейс: оставляем как есть (USDT / COIN в данных),
-			// фронт отрендерит пару как COIN / USDT сам.
-			// Ничего не меняем.
-		} else if !isUSDT(db) && isUSDT(dq) {
-			// BUY-кейс: монета / USDT — фиксируем надёжно
-			dq = "USDT"
-		} else if !isUSDT(db) && !isUSDT(dq) {
-			// кросс-коины: отчёт всегда относительно USDT
-			dq = "USDT"
-		} else {
-			// защитный случай
-			db, dq = "USDT", "USDT"
+		if usdtPerQuote > 0 {
+			for i := range res.Legs {
+				res.Legs[i].Price = round2(res.Legs[i].Price / usdtPerQuote) // QUOTE за 1 BASE
+			}
 		}
-
-		res.Base, res.Quote = db, dq
 	}
+
+	// ВАЖНО: больше НЕ переопределяем res.Base/res.Quote.
+	// Они остаются ровно теми, что прислал пользователь (BASE/QUOTE).
+
 	return res, nil
 }
 
@@ -248,8 +240,8 @@ func toPlanLegs(src []scenario.Leg) []Leg {
 	for _, l := range src {
 		legs = append(legs, Leg{
 			Exchange: l.Exchange,
-			Amount:   l.Qty,   // Qty монеты на ножке (при base=USDT фронт пересчитает в USDT)
-			Price:    l.Price, // цена (USDT/монета)
+			Amount:   l.Qty,   // Qty монеты на ножке (для BUY — BASE)
+			Price:    l.Price, // цена (USDT/монета) — для кросс-пары конвертируем выше
 		})
 	}
 	return legs

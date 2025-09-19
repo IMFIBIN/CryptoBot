@@ -1,5 +1,29 @@
 const $ = (id) => document.getElementById(id);
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Toggle: «Показать выгоду наглядно» (только для сценария 1 — best_single)
+   ──────────────────────────────────────────────────────────────────────────── */
+const uniformMinQty = new Set(); // 0: best_single, 1: equal_split, 2: optimal
+function toggleUniformMinQty(idx) {
+    if (uniformMinQty.has(idx)) uniformMinQty.delete(idx); else uniformMinQty.add(idx);
+    rerenderScenario(idx);
+}
+
+/* Синхронизация стиля кнопок: делаем кнопку визуального режима как «Рассчитать» */
+function applyCalcStyleToButtons() {
+    const calc = $('calc-btn');
+    if (!calc) return;
+    const cs = getComputedStyle(calc);
+    document.querySelectorAll('[data-like-calc-btn]').forEach(btn => {
+        if (calc.className) btn.className = calc.className; // тот же класс
+        // fallback – копируем ключевые computed-стили
+        btn.style.backgroundColor = cs.backgroundColor;
+        btn.style.borderColor = cs.borderColor;
+        btn.style.color = cs.color;
+        btn.style.boxShadow = cs.boxShadow;
+    });
+}
+
 const dict = {
     en: {
         buy: 'Buy',
@@ -79,7 +103,7 @@ function setLang(lang) {
     if (fs && !health?.classList.contains('bad')) fs.textContent = dict[lang].serverOK;
 }
 
-/* Гибкое форматирование (для блока «Сценарий») */
+/* Форматирование */
 const moneyUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 1, maximumFractionDigits: 5 }
@@ -92,8 +116,6 @@ const priceUSDT = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 1, maximumFractionDigits: 5 }
 );
-
-/* Ровно 5 знаков (для таблицы «Распределение») */
 const qtyBASE5 = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 5, maximumFractionDigits: 5 }
@@ -102,7 +124,6 @@ const priceUSDT5 = (n) => Number(n).toLocaleString(
     currentLang === 'ru' ? 'ru-RU' : 'en-US',
     { minimumFractionDigits: 5, maximumFractionDigits: 5 }
 );
-
 function qtyCOINTerse(n) { return qtyBASE(n); }
 
 function sumBaseAmount(legs, base) {
@@ -177,21 +198,20 @@ function scenarioTitle(s) {
 
 function buildSummaryHTML(j) {
     const t = dict[currentLang];
-    const baseU = String(j.base || '').toUpperCase();
-    const quoteU = String(j.quote || '').toUpperCase();
 
-    const pairHasUSDT = (baseU === 'USDT') || (quoteU === 'USDT');
-    const pairBase  = pairHasUSDT ? (baseU === 'USDT' ? (j.quote || '') : (j.base || '')) : (j.base || '');
-    const pairQuote = pairHasUSDT ? 'USDT' : (j.quote || '');
+    // Всегда показываем фактическую пару BASE/QUOTE
+    const base = j.base || '';
+    const quote = j.quote || '';
 
     const received = Number(j.generated || 0);
 
+    // «Обменяли»: сумма и ЕДИНИЦА — это именно QUOTE
     const spentVal   = Number(j.totalCost ?? j.amount ?? 0);
     const spendNum   = qtyCOINTerse(spentVal);
-    const spendUnits = j.quote || '';
+    const spendUnits = quote;
 
     const unspentVal  = Number(j.unspent || 0);
-    const unspentStr  = `${qtyCOINTerse(unspentVal)} ${j.quote || ''}`;
+    const unspentStr  = `${qtyCOINTerse(unspentVal)} ${quote}`;
     const unspentBlock = (unspentVal > 0.0000001)
         ? `<div><strong>${t.unspent}:</strong> ${unspentStr}</div>` : '';
 
@@ -214,27 +234,26 @@ function buildSummaryHTML(j) {
     <div class="divider"></div>
     <div class="grid-2">
       <div>
-        <div><strong>${t.pair}:</strong> ${pairBase || '-'} / ${pairQuote || '-'}</div>
+        <div><strong>${t.pair}:</strong> ${base || '-'} / ${quote || '-'}</div>
         <div><strong>${t.currentTime}:</strong> ${j.generatedAt || ''}</div>
       </div>
       <div>
-        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${j.base || ''}</div>
-        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${spendUnits}</div>
+        <div><strong>${t.receive}:</strong> ${qtyBASE(received)} ${base}</div>
+        <div><strong>${t.spendLabel}:</strong> ${spendNum} ${quote}</div>
         ${unspentBlock}
       </div>
     </div>
   `;
 }
 
-
-
-function buildAllocationHTML(j) {
+function buildAllocationHTML(j, idx) {
     const t = dict[currentLang];
-    const baseU  = String(j.base || '').toUpperCase();
-    const quoteU = String(j.quote || '').toUpperCase();
+    const base  = j.base || '-';
+    const quote = j.quote || '-';
+    const baseU  = String(base).toUpperCase();
     const isOptimal = (j.scenario === 'optimal');
 
-    // сколько BASE на ноге
+    // Сколько BASE на ноге
     const legBaseAmount = (l) => {
         if (baseU === 'USDT') {
             const u = (l && (l.usdt ?? l.amountUSDT));
@@ -246,134 +265,158 @@ function buildAllocationHTML(j) {
 
     const legsRaw = Array.isArray(j.legs) ? j.legs : [];
 
-    // Сортировка: в "optimal" просто сохраняем исходный порядок (распределение уже оптимально),
-    // в остальных сценариях сортируем по цене (меньше = лучше)
+    // Сортировка:
     const legs = isOptimal
         ? legsRaw.slice()
         : legsRaw
             .filter(l => Number.isFinite(Number(l?.price)))
             .sort((a, b) => Number(a.price) - Number(b.price));
 
-    // Базовый объём лучшей строки (нужен только для не-optimal, чтобы посчитать "Разница")
-    const bestQty = (!isOptimal && legs.length) ? legBaseAmount(legs[0]) : 0;
+    // База для «Разницы»
+    const bestQty   = (legs.length ? legBaseAmount(legs[0]) : 0);
+    const bestPrice = (legs.length ? Number(legs[0].price || 0) : 0);
 
-    // Строки таблицы
-    const rows = legs.map((l, i) => {
-        const qty = legBaseAmount(l);
-        const price = Number(l.price || 0);
+    // Минимальное реальное количество среди всех строк (для режима «выравнивания»)
+    const minQty = legs.length ? Math.min(...legs.map(legBaseAmount)) : 0;
 
-        if (isOptimal) {
-            // Без подсветки, без "Разница"
-            return `<tr>
-              <td>${l.exchange || '-'}</td>
-              <td class="num">${qtyBASE5(qty)}</td>
-              <td class="num">${priceUSDT5(price)}</td>
-            </tr>`;
-        }
-
-        // Не optimal: подсветки + "Разница" по количеству BASE (5 знаков)
-        const cls = i === 0 ? 'best-row' : (i === legs.length - 1 ? 'worst-row' : '');
-        const diffQty = qty - bestQty; // у лучшей 0.00000, у остальных — отрицательное
-        return `<tr class="${cls}">
-          <td>${l.exchange || '-'}</td>
-          <td class="num">${qtyBASE5(qty)}</td>
-          <td class="num">${qtyBASE5(diffQty)}</td>
-          <td class="num">${priceUSDT5(price)}</td>
-        </tr>`;
-    }).join('');
+    // Флаг режима «Показать выгоду наглядно» (только для best_single)
+    const isBestSingle = (j.scenario === 'best_single');
+    const showUniform = isBestSingle && uniformMinQty.has(idx);
 
     // Заголовки
-    const priceHeader = (() => {
-        const label = currentLang === 'ru' ? 'Цена (USDT за 1 ' : 'Price (USDT per 1 ';
-        if (quoteU === 'USDT') return `${label}${j.base || '-'})`;
-        if (baseU  === 'USDT') return `${label}${j.quote || '-'})`;
-        return `${label}${j.base || '-'})`;
-    })();
+    const priceHeader = `${currentLang === 'ru' ? 'Цена' : 'Price'} (${quote} ${currentLang === 'ru' ? 'за 1' : 'per 1'} ${base})`;
+    const amountHeader = `${t.amountCol} (${base})`;
+    const diffHeader = showUniform ? `${t.diffCol} (${quote})` : `${t.diffCol}`;
 
-    const amountHeader = `${t.amountCol} (${j.base || '-'})`;
-
-    const bothNotUsdt = (baseU !== 'USDT' && quoteU !== 'USDT');
+    // Подсказка о маршруте через USDT показывается как инфо-текст и не влияет на пары
+    const bothNotUsdt = (String(base).toUpperCase() !== 'USDT' && String(quote).toUpperCase() !== 'USDT');
     const viaUsdtNote = bothNotUsdt
         ? `<div class="muted" style="margin:6px 0 10px 0;">
         ${currentLang === 'ru'
-            ? `Маршрут через USDT: продаём ${j.quote || ''} → USDT, затем покупаем ${j.base || ''} за USDT`
-            : `Routed via USDT: sell ${j.quote || ''} → USDT, then buy ${j.base || ''} for USDT`}
+            ? `Маршрут через USDT: продаём ${quote} → USDT, затем покупаем ${base} за USDT`
+            : `Routed via USDT: sell ${quote} → USDT, then buy ${base} for USDT`}
        </div>`
         : '';
 
+    // Строки
+    const rows = legs.map((l, i) => {
+        const qtyReal  = legBaseAmount(l);
+        const qtyShown = (isOptimal ? qtyReal : (showUniform ? minQty : qtyReal));
+        const price    = Number(l.price || 0);
+
+        // Разница: обычный режим — BASE; режим наглядности — QUOTE
+        const diffValue = showUniform
+            ? (minQty * price - minQty * bestPrice)   // в валюте котировки
+            : (qtyReal - bestQty);                    // в BASE
+
+        const diffCell = showUniform ? priceUSDT5(diffValue) : qtyBASE5(diffValue);
+
+        if (isOptimal) {
+            return `<tr>
+        <td>${l.exchange || '-'}</td>
+        <td class="num">${qtyBASE5(qtyShown)}</td>
+        <td class="num">${priceUSDT5(price)}</td>
+      </tr>`;
+        }
+
+        const cls = i === 0 ? 'best-row' : (i === legs.length - 1 ? 'worst-row' : '');
+        return `<tr class="${cls}">
+      <td>${l.exchange || '-'}</td>
+      <td class="num">${qtyBASE5(qtyShown)}</td>
+      <td class="num">${diffCell}</td>
+      <td class="num">${priceUSDT5(price)}</td>
+    </tr>`;
+    }).join('');
+
+    // Таблица
     const totalBase = sumBaseAmount(legs.length ? legs : legsRaw, baseU);
 
-    // Таблица и легенда: для optimal 3 колонки и без легенды; для остальных — 4 колонки и легенда
     if (isOptimal) {
         return `
-  <div class="divider-small"></div>
-  <h2>${t.allocation}</h2>
-  ${viaUsdtNote}
-  <table class="grid-table">
-    <thead>
-      <tr>
-        <th>${t.exchange}</th>
-        <th class="num">${amountHeader}</th>
-        <th class="num">${priceHeader}</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-    <tfoot>
-      <tr>
-        <th>${t.total}</th>
-        <th class="num">${qtyBASE5(totalBase)}</th>
-        <th></th>
-      </tr>
-    </tfoot>
-  </table>
-`;
+      <div class="divider-small"></div>
+      <h2>${t.allocation}</h2>
+      ${viaUsdtNote}
+      <table class="grid-table">
+        <thead>
+          <tr>
+            <th>${t.exchange}</th>
+            <th class="num">${amountHeader}</th>
+            <th class="num">${priceHeader}</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <th>${t.total}</th>
+            <th class="num">${qtyBASE5(totalBase)}</th>
+            <th></th>
+          </tr>
+        </tfoot>
+      </table>
+    `;
     }
 
-    // Не optimal — прежний вариант с «Разница» и легендой
     return `
-  <div class="divider-small"></div>
-  <h2>${t.allocation}</h2>
-  ${viaUsdtNote}
-  <table class="grid-table">
-    <thead>
-      <tr>
-        <th>${t.exchange}</th>
-        <th class="num">${amountHeader}</th>
-        <th class="num">${t.diffCol}</th>
-        <th class="num">${priceHeader}</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-    ${j.scenario === 'best_single' ? '' : `
-      <tfoot>
+    <div class="divider-small"></div>
+
+    <div class="alloc-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px 0;">
+      <h2 style="margin:0;">${t.allocation}</h2>
+      ${isBestSingle ? `
+        <button
+          data-like-calc-btn
+          type="button"
+          class="${($('calc-btn')?.className || 'btn')}"
+          style="padding:6px 10px;border-radius:10px;font-weight:600"
+          onclick="toggleUniformMinQty(${idx})">
+          ${currentLang === 'ru'
+        ? (showUniform ? 'Показать реальные количества' : 'Показать выгоду наглядно')
+        : (showUniform ? 'Show actual volumes' : 'Show visual benefit')}
+        </button>
+      ` : ``}
+    </div>
+
+    ${viaUsdtNote}
+
+    <table class="grid-table">
+      <thead>
         <tr>
-          <th>${t.total}</th>
-          <th class="num">${qtyBASE5(totalBase)}</th>
-          <th></th>
-          <th></th>
+          <th>${t.exchange}</th>
+          <th class="num">${amountHeader}</th>
+          <th class="num">${diffHeader}</th>
+          <th class="num">${priceHeader}</th>
         </tr>
-      </tfoot>`}
-  </table>
-  <div class="divider-legend"></div>
-  <div style="display:flex; gap:12px; font-size:0.9em; align-items:center;">
-    <div style="display:flex; align-items:center; gap:6px;">
-      <span style="display:inline-block;width:12px;height:12px;background:#36B37E26;border-radius:2px;"></span>
-      <span>${currentLang === 'ru' ? 'Лучший обмен' : 'Best rate'}</span>
+      </thead>
+      <tbody>${rows}</tbody>
+      ${j.scenario === 'best_single' ? '' : `
+        <tfoot>
+          <tr>
+            <th>${t.total}</th>
+            <th class="num">${qtyBASE5(totalBase)}</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </tfoot>`}
+    </table>
+
+    <div class="divider-legend"></div>
+    <div style="display:flex; gap:12px; font-size:0.9em; align-items:center;">
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="display:inline-block;width:12px;height:12px;background:#36B37E26;border-radius:2px;"></span>
+        <span>${currentLang === 'ru' ? 'Лучший обмен' : 'Best rate'}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="display:inline-block;width:12px;height:12px;background:#EB575726;border-radius:2px;"></span>
+        <span>${currentLang === 'ru' ? 'Худший обмен' : 'Worst rate'}</span>
+      </div>
     </div>
-    <div style="display:flex; align-items:center; gap:6px;">
-      <span style="display:inline-block;width:12px;height:12px;background:#EB575726;border-radius:2px;"></span>
-      <span>${currentLang === 'ru' ? 'Худший обмен' : 'Worst rate'}</span>
-    </div>
-  </div>
-`;
+  `;
 }
 
-
-function buildScenarioPanel(j) {
+function buildScenarioPanel(j, idx) {
     return `
     <section class="card">
       ${buildSummaryHTML(j)}
-      ${buildAllocationHTML(j)}
+      ${buildAllocationHTML(j, idx)}
     </section>
   `;
 }
@@ -430,14 +473,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
             const results = await Promise.all(scenarios.map(fetchOne));
+            window._lastResults = results;
 
-            const baseU = base.toUpperCase();
-            const quoteU = quote.toUpperCase();
-            const titleBase  = (baseU === 'USDT' && quoteU !== 'USDT') ? quote : base;
-            const titleQuote = 'USDT';
+            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
+            const panels = results.map((r, i) => buildScenarioPanel(r, i)).join('');
+            cmp.innerHTML = title + panels;
 
-            const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${titleBase}/${titleQuote}</h2>`;
-            cmp.innerHTML = title + results.map(buildScenarioPanel).join('');
+            applyCalcStyleToButtons(); // сделать кнопку синей как «Рассчитать»
         } catch (err) {
             let msg = String(err);
             try {
@@ -445,10 +487,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (parsed && parsed.error) msg = parsed.error;
             } catch {}
             cmp.innerHTML = `<section class="card"><div style="color:#c008e8;font-weight:600">
-      Ошибка: ${msg}
-  </div></section>`;
+        Ошибка: ${msg}
+      </div></section>`;
         } finally {
             btn.disabled = false;
         }
     });
+
+    // локальный ререндер конкретного сценария без повторных запросов
+    window.rerenderScenario = function(i) {
+        if (!Array.isArray(window._lastResults)) return;
+        const cmp = $('comparisons');
+        if (!cmp) return;
+
+        const base = $('base')?.value?.trim().toUpperCase() || 'BTC';
+        const quote = $('quote')?.value?.trim().toUpperCase() || 'USDT';
+
+        const title = `<h2 class="muted" style="margin:8px 0 0 2px;">${dict[currentLang].resultsFor}: ${base}/${quote}</h2>`;
+        const panels = window._lastResults.map((r, idx) => buildScenarioPanel(r, idx)).join('');
+        cmp.innerHTML = title + panels;
+
+        applyCalcStyleToButtons();
+    };
 });
